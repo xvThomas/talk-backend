@@ -56,7 +56,7 @@ func (p *stubPromptProvider) SystemPrompt(_ context.Context) (string, error) {
 // stubTool is a Tool that records calls and returns a fixed result.
 type stubTool struct {
 	name   string
-	result string
+	result map[string]any
 	err    error
 	called int
 }
@@ -64,9 +64,21 @@ type stubTool struct {
 func (t *stubTool) Name() string               { return t.name }
 func (t *stubTool) Description() string        { return "stub tool" }
 func (t *stubTool) Parameters() map[string]any { return map[string]any{} }
-func (t *stubTool) Execute(_ context.Context, _ map[string]any) (string, error) {
+func (t *stubTool) Execute(_ context.Context, _ map[string]any) (map[string]any, error) {
 	t.called++
 	return t.result, t.err
+}
+func (t *stubTool) InputSchema() (map[string]any, error) {
+	return map[string]any{
+		"type":       "object",
+		"properties": map[string]any{},
+	}, nil
+}
+func (t *stubTool) OutputSchema() (map[string]any, error) {
+	return map[string]any{
+		"type":       "object",
+		"properties": map[string]any{},
+	}, nil
 }
 
 // --- tests ---
@@ -94,7 +106,7 @@ func TestConversation_NoToolCall(t *testing.T) {
 }
 
 func TestConversation_SingleToolCall(t *testing.T) {
-	tool := &stubTool{name: "get_current_weather", result: "20°C, sunny"}
+	tool := &stubTool{name: "get_current_weather", result: map[string]any{"temperature": "20°C", "condition": "sunny"}}
 	client := &stubClient{responses: []*Message{
 		{
 			Role:      RoleAssistant,
@@ -117,7 +129,7 @@ func TestConversation_SingleToolCall(t *testing.T) {
 }
 
 func TestConversation_MaxToolCallsExceeded(t *testing.T) {
-	tool := &stubTool{name: "loop_tool", result: "looping"}
+	tool := &stubTool{name: "loop_tool", result: map[string]any{"looping": true}}
 	responses := make([]*Message, maxToolCalls+1)
 	for i := range responses {
 		responses[i] = &Message{
@@ -152,7 +164,7 @@ func TestConversation_UnknownToolReturnsError(t *testing.T) {
 // --- usage reporter tests ---
 
 func TestUsage_OnAPICallFiredPerComplete(t *testing.T) {
-	tool := &stubTool{name: "weather", result: "sunny"}
+	tool := &stubTool{name: "weather", result: map[string]any{"condition": "sunny"}}
 	client := &stubClient{
 		responses: []*Message{
 			{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "1", Name: "weather", Input: map[string]any{}}}},
@@ -188,7 +200,7 @@ func TestUsage_OnAPICallFiredPerComplete(t *testing.T) {
 }
 
 func TestUsage_OnConversationTurnAggregatesUsage(t *testing.T) {
-	tool := &stubTool{name: "weather", result: "sunny"}
+	tool := &stubTool{name: "weather", result: map[string]any{"condition": "sunny"}}
 	client := &stubClient{
 		responses: []*Message{
 			{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "1", Name: "weather", Input: map[string]any{}}}},
@@ -265,9 +277,9 @@ func TestUsage_Add(t *testing.T) {
 
 func TestConversation_ParallelToolExecution(t *testing.T) {
 	// Setup multiple tools to test parallel execution
-	tool1 := &stubTool{name: "tool1", result: "result1"}
-	tool2 := &stubTool{name: "tool2", result: "result2"}
-	tool3 := &stubTool{name: "tool3", result: "result3"}
+	tool1 := &stubTool{name: "tool1", result: map[string]any{"result": "result1"}}
+	tool2 := &stubTool{name: "tool2", result: map[string]any{"result": "result2"}}
+	tool3 := &stubTool{name: "tool3", result: map[string]any{"result": "result3"}}
 
 	client := &stubClient{responses: []*Message{
 		{
@@ -306,8 +318,8 @@ func TestConversation_ParallelToolExecution(t *testing.T) {
 }
 
 func TestConversation_SequentialWhenMaxConcurrentIsOne(t *testing.T) {
-	tool1 := &stubTool{name: "tool1", result: "result1"}
-	tool2 := &stubTool{name: "tool2", result: "result2"}
+	tool1 := &stubTool{name: "tool1", result: map[string]any{"result": "result1"}}
+	tool2 := &stubTool{name: "tool2", result: map[string]any{"result": "result2"}}
 
 	client := &stubClient{responses: []*Message{
 		{

@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"encoding/json"
+	"fmt"
 	"talks/internal/domain"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -47,10 +48,14 @@ func toToolResultParam(msg domain.Message) anthropic.MessageParam {
 // The last tool is marked with cache_control so that the prompt cache covers
 // the system prompt + all tool definitions (Anthropic caches everything up to
 // the last cache breakpoint).
-func toSDKTools(tools []domain.Tool) []anthropic.ToolUnionParam {
+func toSDKTools(tools []domain.Tool) ([]anthropic.ToolUnionParam, error) {
 	sdkTools := make([]anthropic.ToolUnionParam, 0, len(tools))
 	for _, t := range tools {
-		params := t.Parameters()
+		// params := t.Parameters()
+		params, err := t.InputSchema()
+		if err != nil {
+			return nil, fmt.Errorf("Unable to get InputSchema for tool %s: %w", t.Name(), err)
+		}
 		props, _ := params["properties"]
 		var required []string
 		if r, ok := params["required"]; ok {
@@ -72,7 +77,7 @@ func toSDKTools(tools []domain.Tool) []anthropic.ToolUnionParam {
 	if len(sdkTools) > 0 {
 		sdkTools[len(sdkTools)-1].OfTool.CacheControl = anthropic.NewCacheControlEphemeralParam()
 	}
-	return sdkTools
+	return sdkTools, nil
 }
 
 // fromSDKResponse converts an Anthropic SDK response to a domain Message and Usage.

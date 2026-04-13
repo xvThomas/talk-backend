@@ -38,7 +38,11 @@ func (c *OpenAIClient) Complete(ctx context.Context, systemPrompt string, messag
 	}
 
 	if len(tools) > 0 {
-		params.Tools = toSDKTools(tools)
+		var err error
+		params.Tools, err = toSDKTools(tools)
+		if err != nil {
+			return nil, domain.Usage{}, fmt.Errorf("openai completion: %w", err)
+		}
 	}
 
 	resp, err := c.sdk.Chat.Completions.New(ctx, params)

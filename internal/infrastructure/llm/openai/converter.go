@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/json"
+	"fmt"
 	"talks/internal/domain"
 
 	"github.com/openai/openai-go"
@@ -61,19 +62,23 @@ func toToolResultParams(msg domain.Message) []openai.ChatCompletionMessageParamU
 }
 
 // toSDKTools converts domain tools to OpenAI SDK tool definitions.
-func toSDKTools(tools []domain.Tool) []openai.ChatCompletionToolParam {
+func toSDKTools(tools []domain.Tool) ([]openai.ChatCompletionToolParam, error) {
 	sdkTools := make([]openai.ChatCompletionToolParam, 0, len(tools))
 	for _, t := range tools {
+		inputSchema, err := t.InputSchema()
+		if err != nil {
+			return nil, fmt.Errorf("Unable to get InputSchema for tool %s: %w", t.Name(), err)
+		}
 		// Type field is constant.Function, zero value marshals as "function" automatically.
 		sdkTools = append(sdkTools, openai.ChatCompletionToolParam{
 			Function: openai.FunctionDefinitionParam{
 				Name:        t.Name(),
 				Description: openai.String(t.Description()),
-				Parameters:  openai.FunctionParameters(t.Parameters()),
+				Parameters:  openai.FunctionParameters(inputSchema),
 			},
 		})
 	}
-	return sdkTools
+	return sdkTools, nil
 }
 
 // fromSDKResponse converts an OpenAI SDK response to a domain Message and Usage.

@@ -3,7 +3,7 @@ package tools
 import (
 	"talks/internal/domain"
 	"talks/internal/infrastructure/config"
-	"talks/internal/infrastructure/tools/openweathermaps/weather"
+	"talks/internal/infrastructure/tools/openweather"
 )
 
 // Tools aggregates all available domain.Tool implementations.
@@ -18,8 +18,8 @@ func New(cfg *config.Config) *Tools {
 
 // All returns the list of all registered tools as type-erased Tool handlers.
 func (t *Tools) All() []domain.Tool {
-	w := weather.NewCurrentWeatherTool(t.cfg.OpenWeatherMapAPIKey)
+	w := openweather.NewCurrentWeatherTool(t.cfg.OpenWeatherMapAPIKey)
 	return []domain.Tool{
-		domain.Adapt(w, w.Parameters),
+		domain.Adapt(w /*, w.Parameters*/),
 	}
 }

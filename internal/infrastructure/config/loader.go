@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -23,6 +24,9 @@ type Config struct {
 
 	// Reporter configuration
 	ConsoleUsageReporter bool // CONSOLE_USAGE_REPORTER=true/false (default: true)
+
+	// MCP server configuration
+	McpAllowedOrigins []string // MCP_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000 (comma-separated)
 }
 
 // Load reads the .env file (if present) then reads environment variables.
@@ -44,6 +48,9 @@ func Load(envFile string) (*Config, error) {
 
 		// Reporter configuration
 		ConsoleUsageReporter: parseConsoleUsageReporter(os.Getenv("CONSOLE_USAGE_REPORTER")),
+
+		// MCP server configuration
+		McpAllowedOrigins: parseMcpAllowedOrigins(os.Getenv("MCP_ALLOWED_ORIGINS")),
 	}
 
 	return cfg, nil
@@ -74,6 +81,22 @@ func requireKey(value, name string) (string, error) {
 		return "", fmt.Errorf("missing required environment variable %q", name)
 	}
 	return value, nil
+}
+
+// parseMcpAllowedOrigins parses MCP_ALLOWED_ORIGINS as a comma-separated list.
+// Returns nil if the variable is empty (allow all origins).
+func parseMcpAllowedOrigins(value string) []string {
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	origins := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			origins = append(origins, trimmed)
+		}
+	}
+	return origins
 }
 
 // parseToolsMaxConcurrent parses TOOLS_MAX_CONCURRENT with fallback to 4.

@@ -244,7 +244,15 @@ func (m *ConversationManager) executeTool(ctx context.Context, call ToolCall) (T
 			if err != nil {
 				return ToolResult{}, fmt.Errorf("tool %q execution: %w", call.Name, err)
 			}
-			return ToolResult{ToolCallID: call.ID, Content: content}, nil
+			// ici convertir content (map[string]any) en string pour le stocker dans ToolResult.Content
+			// en supposant que le résultat de l'outil est une carte, nous allons le marshaller en JSON pour le stocker comme string
+			contentBytes, err := json.Marshal(content)
+			if err != nil {
+				return ToolResult{}, fmt.Errorf("marshalling tool output for tool %q: %w", call.Name, err)
+			}
+			return ToolResult{ToolCallID: call.ID, Content: string(contentBytes)}, nil
+			// return ToolResult{ToolCallID: call.ID, Content: content}, nil --- IGNORE ---
+			// return ToolResult{ToolCallID: call.ID, Content: content.(string)}, nil --- IGNORE ---
 		}
 	}
 	return ToolResult{}, fmt.Errorf("unknown tool %q", call.Name)
