@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"talks/internal/domain"
 	"net/http"
 	"net/url"
+	"talks/internal/domain"
 	"time"
 )
 
@@ -81,10 +81,33 @@ func NewCurrentWeatherTool(apiKey string) *CurrentWeatherTool {
 }
 
 var _ domain.TypedTool[CurrentWeatherToolInput, CurrentWeatherToolOutput] = (*CurrentWeatherTool)(nil)
+var _ domain.MCPPromptProvider = (*CurrentWeatherTool)(nil)
 
 // newCurrentWeatherToolWithBaseURL creates a CurrentWeatherTool with a custom base URL (for testing).
 func newCurrentWeatherToolWithBaseURL(apiKey, baseURL string, client *http.Client) *CurrentWeatherTool {
 	return &CurrentWeatherTool{apiKey: apiKey, baseURL: baseURL, http: client}
+}
+
+// Prompts implements domain.PromptProvider.
+// Exposes a "weather-assistant" MCP prompt that instructs the LLM to always
+// call this tool instead of answering from training knowledge.
+func (t *CurrentWeatherTool) Prompts() []domain.ToolPrompt {
+	return []domain.ToolPrompt{
+		{
+			Name:        "weather-assistant",
+			Description: "Activates real-time weather mode: always calls get_current_weather instead of relying on training knowledge.",
+			Messages: []domain.ToolPromptMessage{
+				{
+					Role: "user",
+					Text: "For any weather question in this conversation, you MUST call the get_current_weather tool. Never answer weather questions from training knowledge — it is always outdated. If the tool returns an error, say so explicitly.",
+				},
+				{
+					Role: "assistant",
+					Text: "Understood. For every weather question in this conversation I will call the get_current_weather tool and base my answer exclusively on its response, never on my training knowledge.",
+				},
+			},
+		},
+	}
 }
 
 // Name returns the tool name as expected by the model.
@@ -92,21 +115,7 @@ func (t *CurrentWeatherTool) Name() string { return "get_current_weather" }
 
 // Description describes what the tool does.
 func (t *CurrentWeatherTool) Description() string {
-	return "Get the current weather for a given city. Returns full weather data including coordinates, temperature, feels-like, min/max temp, humidity, pressure, wind speed and direction, cloudiness, visibility, precipitation, and sunrise/sunset times."
-}
-
-// Parameters returns the JSON Schema for the tool input.
-func (t *CurrentWeatherTool) Parameters() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"city": map[string]any{
-				"type":        "string",
-				"description": "The city name, e.g. Paris",
-			},
-		},
-		"required": []string{"city"},
-	}
+	return "Get the current weather for a given city. ALWAYS use this tool for any weather-related question — never answer from training knowledge, which is outdated. Returns live data: coordinates, temperature, feels-like, min/max temp, humidity, pressure, wind speed and direction, cloudiness, visibility, precipitation, and sunrise/sunset times."
 }
 
 // Call calls the OpenWeatherMap API and returns a typed output struct.

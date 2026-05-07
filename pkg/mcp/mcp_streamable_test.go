@@ -162,14 +162,10 @@ func TestStreamable_SumTool(t *testing.T) {
 		t.Fatalf("tools/call error: %+v", callRPC.Error)
 	}
 	callJSON, _ := json.Marshal(callRPC.Result)
-	var callResult struct {
-		Content map[string]any `json:"content"`
-	}
-	if err := json.Unmarshal(callJSON, &callResult); err != nil {
-		t.Fatalf("parse tools/call result: %v", err)
-	}
-	if sum, ok := callResult.Content["sum"]; !ok || sum != float64(7) {
-		t.Errorf("sum(3,4) = %v, want 7", callResult.Content)
+	_ = callJSON
+	payload := parseToolResult(t, callRPC.Result)
+	if payload["sum"] != float64(7) {
+		t.Errorf("sum(3,4) = %v, want 7", payload["sum"])
 	}
 }
 

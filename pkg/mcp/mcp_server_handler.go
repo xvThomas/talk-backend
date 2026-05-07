@@ -189,12 +189,12 @@ func (h *mcpServerHandler) PostMCP(w http.ResponseWriter, r *http.Request) {
 
 	// Notifications (no id) -> 202, no response body.
 	if req.ID == nil {
-		h.rpcRouter.RouteRequest(r.Context(), req)
+		h.rpcRouter.RouteRequest(withProtoVersion(r.Context(), protoHeader), req)
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 
-	resp := h.rpcRouter.RouteRequest(r.Context(), req)
+	resp := h.rpcRouter.RouteRequest(withProtoVersion(r.Context(), protoHeader), req)
 	b, _ := json.Marshal(resp)
 
 	// If the client accepts SSE, push via any registered GET /mcp stream.

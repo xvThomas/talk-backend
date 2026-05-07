@@ -6,11 +6,21 @@ import (
 	"talks/internal/domain"
 	"talks/internal/infrastructure/config"
 	"talks/internal/infrastructure/tools/openweather"
-	"talks/pkg/mcp/playground"
 	"talks/pkg/mcp"
+	"talks/pkg/mcp/playground"
 )
 
 func main() {
+
+	/*
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		panic("failed to get current file path")
+	}
+	// From internal/helpers/testutils/ go up 4 levels to project root
+	dir := filepath.Dir(filename)
+	*/
+
 	cfg, err := config.Load(".env")
 	if err != nil {
 		log.Fatalf("config: %v", err)

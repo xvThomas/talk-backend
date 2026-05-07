@@ -179,14 +179,10 @@ func TestStdio_SumTool(t *testing.T) {
 		t.Fatalf("tools/call error: %+v", callResp.Error)
 	}
 	callJSON, _ := json.Marshal(callResp.Result)
-	var callResult struct {
-		Content map[string]float64 `json:"content"`
-	}
-	if err := json.Unmarshal(callJSON, &callResult); err != nil {
-		t.Fatalf("parse tools/call result: %v", err)
-	}
-	if callResult.Content["sum"] != 7 {
-		t.Errorf("expected sum=7, got %v", callResult.Content["sum"])
+	_ = callJSON
+	payload := parseToolResult(t, callResp.Result)
+	if payload["sum"] != float64(7) {
+		t.Errorf("expected sum=7, got %v", payload["sum"])
 	}
 }
 

@@ -5,7 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"talks/internal/infrastructure/helpers/testutils"
 	"testing"
+
+	"github.com/joho/godotenv"
 )
 
 func TestCurrentWeatherTool_Metadata(t *testing.T) {
@@ -15,10 +20,6 @@ func TestCurrentWeatherTool_Metadata(t *testing.T) {
 	}
 	if tool.Description() == "" {
 		t.Error("description should not be empty")
-	}
-	params := tool.Parameters()
-	if params["type"] != "object" {
-		t.Error("parameters should be of type object")
 	}
 }
 
@@ -148,5 +149,40 @@ func TestCurrentWeatherTool_Call_WithPrecipitation(t *testing.T) {
 	}
 	if result.Snow != nil {
 		t.Errorf("expected Snow to be nil, got %v", result.Snow)
+	}
+}
+
+func TestCurrentWeatherTool_Integration(t *testing.T) {
+	// Load .env.test from the project root (4 levels up from this package directory).
+	// godotenv.Load does not override variables that are already set in the environment.
+	projectRoot := testutils.GetProjectRoot()
+	_ = godotenv.Load(
+		filepath.Join(projectRoot, ".env.test"),
+	)
+
+	apiKey := os.Getenv("OPENWEATHERMAP_API_KEY")
+	if apiKey == "" {
+		t.Skip("OPENWEATHERMAP_API_KEY not set in .env.test, skipping integration test")
+	}
+
+	tool := NewCurrentWeatherTool(apiKey)
+	result, err := tool.Call(context.Background(), CurrentWeatherToolInput{City: "Paris"})
+	if err != nil {
+		t.Fatalf("integration call failed: %v", err)
+	}
+	if result.Name == "" {
+		t.Error("expected non-empty city name")
+	}
+	if len(result.Weather) == 0 {
+		t.Error("expected at least one weather condition")
+	}
+	if result.Coord.Lat == 0 && result.Coord.Lon == 0 {
+		t.Error("expected non-zero coordinates for Paris")
+	}
+	if result.DateTime == "" {
+		t.Error("expected non-empty DateTime")
+	}
+	if result.Sys.Country == "" {
+		t.Error("expected non-empty country code")
 	}
 }
