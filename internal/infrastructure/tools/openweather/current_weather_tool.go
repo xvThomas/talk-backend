@@ -76,12 +76,12 @@ type CurrentWeatherTool struct {
 }
 
 // NewCurrentWeatherTool creates a CurrentWeatherTool with the given API key.
-func NewCurrentWeatherTool(apiKey string) *CurrentWeatherTool {
+func NewCurrentWeatherTool(apiKey string) domain.TypedTool[CurrentWeatherToolInput, CurrentWeatherToolOutput] {
 	return &CurrentWeatherTool{apiKey: apiKey, baseURL: defaultBaseURL, http: &http.Client{}}
 }
 
 var _ domain.TypedTool[CurrentWeatherToolInput, CurrentWeatherToolOutput] = (*CurrentWeatherTool)(nil)
-var _ domain.MCPPromptProvider = (*CurrentWeatherTool)(nil)
+// var _ domain.MCPPromptProvider = (*CurrentWeatherTool)(nil)
 
 // newCurrentWeatherToolWithBaseURL creates a CurrentWeatherTool with a custom base URL (for testing).
 func newCurrentWeatherToolWithBaseURL(apiKey, baseURL string, client *http.Client) *CurrentWeatherTool {

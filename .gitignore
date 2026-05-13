@@ -8,3 +8,6 @@ bin/
 # Coverage artefacts
 coverage.out
 coverage.html
+
+#misc
+tmp/

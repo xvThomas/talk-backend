@@ -1,0 +1,12 @@
+{
+    "cSpell.language": "en,fr",
+    "cSpell.allowCompoundWords": true,
+    "cSpell.words": [
+        "godotenv",
+        "golangci",
+        "ldflags",
+        "mcpserver",
+        "testdata",
+        "tmpl"
+    ]
+}
