@@ -1,36 +1,31 @@
 package main
 
 import (
-	"log"
+	"os"
 
-	"talks/internal/domain"
-	"talks/internal/infrastructure/config"
 	"talks/internal/infrastructure/tools/openweather"
-	"talks/pkg/mcplegacy"
-	"talks/pkg/mcplegacy/playground"
+	"talks/pkg/logger"
+	"talks/pkg/mcpserver"
 )
 
 func main() {
+	log := logger.GetLogger()
 
-	/*
-		_, filename, _, ok := runtime.Caller(0)
-		if !ok {
-			panic("failed to get current file path")
-		}
-		// From internal/helpers/testutils/ go up 4 levels to project root
-		dir := filepath.Dir(filename)
-	*/
-
-	cfg, err := config.Load(".env")
+	env, err := loadServerEnv(".env")
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		log.Error("failed to load config", "error", err)
+		os.Exit(1)
 	}
 
-	owmKey, _ := cfg.RequireOpenWeatherMapKey()
+	weatherTool := openweather.NewCurrentWeatherTool(env.OpenWeatherMapAPIKey)
 
-	server := mcplegacy.NewMcpServer("mcp-openweather-server", "0.1.0", 8080, []domain.Tool{
-		domain.Adapt(playground.NewSumTool()),
-		domain.Adapt(openweather.NewCurrentWeatherTool(owmKey)),
-	}, cfg.McpAllowedOrigins)
-	server.Start()
+	app := &mcpserver.App{
+		Name:    "owm-mcp",
+		Version: "1.0.0",
+		APIKey:  env.APIKey,
+		Tools: []mcpserver.ToolRegistrar{
+			mcpserver.RegisterTool(weatherTool),
+		},
+	}
+	app.Run()
 }
