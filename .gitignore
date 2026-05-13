@@ -1,5 +1,6 @@
 # Environment variables — never commit real keys
 .env
+.env.test
 
 # Compiled binaries
 bin/
