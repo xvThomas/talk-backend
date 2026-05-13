@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "greeter": {
+      "type": "stdio",
+      "command": "/Users/xavierthomas/Documents/dev/LLM/LLMClientWrapper/bin/go-sdk-server",
+      "args": ["--transport", "stdio"]
+    }
+  }
+}
