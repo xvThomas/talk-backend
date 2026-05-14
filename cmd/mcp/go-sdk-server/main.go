@@ -19,13 +19,24 @@ func main() {
 
 	weatherTool := openweather.NewCurrentWeatherTool(env.OpenWeatherMapAPIKey)
 
-	app := &mcpserver.App{
-		Name:    "weather-mcp",
-		Version: "1.0.0",
-		APIKey:  env.APIKey,
-		Tools: []mcpserver.ToolRegistrar{
-			mcpserver.RegisterTool(weatherTool),
-		},
+	opts := []mcpserver.Option{
+		mcpserver.WithTools(mcpserver.RegisterTool(weatherTool)),
 	}
+	if env.APIKey != "" {
+		opts = append(opts, mcpserver.WithAPIKey(env.APIKey))
+	}
+	if env.OAuthAuthorizationServer != "" {
+		opts = append(opts, mcpserver.WithOAuth(&mcpserver.OAuthConfig{
+			AuthorizationServerURL: env.OAuthAuthorizationServer,
+			ResourceBaseURL:        env.BaseURL,
+			Scopes:                 env.OAuthScopesList(),
+			TokenVerifier: mcpserver.NewJWKSTokenVerifier(mcpserver.JWKSVerifierConfig{
+				IssuerURL: env.OAuthAuthorizationServer,
+				Audience:  env.OAuthAudience,
+			}),
+		}))
+	}
+
+	app := mcpserver.NewApp("weather-mcp", "1.0.0", opts...)
 	app.Run()
 }

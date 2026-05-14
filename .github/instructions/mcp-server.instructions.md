@@ -65,7 +65,7 @@ func (t *MyTool) Call(ctx context.Context, input MyToolInput) (MyToolOutput, err
 
 ### 3. Create `config.go`
 
-Compose `mcpserver.BaseEnv` (provides `APIKey` / `X_API_KEY`) with your server-specific environment variables:
+Compose `mcpserver.BaseEnv` (provides `APIKey` / `X_API_KEY` and OAuth env vars) with your server-specific environment variables:
 
 ```go
 package main
@@ -100,13 +100,13 @@ func loadServerEnv(envFiles ...string) (*serverEnv, error) {
 ```
 
 Key rules:
-- Always embed `mcpserver.BaseEnv` — it handles `X_API_KEY` for HTTP auth.
+- Always embed `mcpserver.BaseEnv` — it handles `X_API_KEY`, `OAUTH_AUTHORIZATION_SERVER`, and `OAUTH_SCOPES`.
 - Call `mcpserver.LoadBaseEnv()` after `godotenv.Load`.
-- Validate only your server-specific variables; `APIKey` is validated by `mcpserver.App` at runtime.
+- Validate only your server-specific variables; auth configuration is handled by the framework at runtime.
 
 ### 4. Create `main.go`
 
-Wire tools and start the app:
+Wire tools and start the app using the functional options pattern:
 
 ```go
 package main
@@ -130,14 +130,23 @@ func main() {
 
     tool := mytool.NewMyTool(env.MyServiceAPIKey)
 
-    app := &mcpserver.App{
-        Name:    "<server-name>-mcp",
-        Version: "1.0.0",
-        APIKey:  env.APIKey,
-        Tools: []mcpserver.ToolRegistrar{
-            mcpserver.RegisterTool(tool),
-        },
+    opts := []mcpserver.Option{
+        mcpserver.WithTools(mcpserver.RegisterTool(tool)),
     }
+    if env.APIKey != "" {
+        opts = append(opts, mcpserver.WithAPIKey(env.APIKey))
+    }
+    if env.OAuthAuthorizationServer != "" {
+        opts = append(opts, mcpserver.WithOAuth(&mcpserver.OAuthConfig{
+            AuthorizationServerURL: env.OAuthAuthorizationServer,
+            Scopes:                 env.OAuthScopesList(),
+            TokenVerifier: mcpserver.NewJWKSTokenVerifier(mcpserver.JWKSVerifierConfig{
+                IssuerURL: env.OAuthAuthorizationServer,
+            }),
+        }))
+    }
+
+    app := mcpserver.NewApp("<server-name>-mcp", "1.0.0", opts...)
     app.Run()
 }
 ```
@@ -145,7 +154,9 @@ func main() {
 Key rules:
 - `main.go` must stay thin: load config, create tools, wire app, run.
 - No business logic in `main.go`.
-- Multiple tools can be registered by adding entries to the `Tools` slice.
+- Use `mcpserver.NewApp` constructor with functional options (`WithAPIKey`, `WithOAuth`, `WithTools`).
+- Auth options are conditional: only add `WithAPIKey` / `WithOAuth` when the env vars are set.
+- Multiple tools can be registered by adding entries to `WithTools()`.
 
 ### 5. Create `Makefile`
 
@@ -190,24 +201,68 @@ ENTRYPOINT ["<server-name>", "--transport", "http", "--addr", "0.0.0.0:8080"]
 ```env
 X_API_KEY=your-dev-secret
 MY_SERVICE_API_KEY=your-service-key
+
+# Optional OAuth configuration
+# OAUTH_AUTHORIZATION_SERVER=https://my-tenant.auth0.com
+# OAUTH_SCOPES=mcp:read,mcp:write
 ```
 
 ## Framework Reference
 
-### `pkg/mcpserver.App`
+### `pkg/mcpserver.NewApp`
 
-| Field     | Type               | Description                                      |
-|-----------|--------------------|--------------------------------------------------|
-| `Name`    | `string`           | Server name (used in MCP implementation info)    |
-| `Version` | `string`           | Server version                                   |
-| `Tools`   | `[]ToolRegistrar`  | List of tool registrars                          |
-| `APIKey`  | `string`           | Shared secret for HTTP auth (from `BaseEnv`)     |
+```go
+func NewApp(name, version string, opts ...Option) *App
+```
+
+Creates an `App` configured with functional options.
+
+### Options
+
+| Option                   | Description                                            |
+|--------------------------|--------------------------------------------------------|
+| `WithAPIKey(key)`        | Enables X-API-Key header auth for HTTP transport       |
+| `WithOAuth(cfg)`         | Enables OAuth 2.0 Bearer token auth for HTTP transport |
+| `WithTools(tools...)`    | Registers tools on the MCP server                      |
+
+### `pkg/mcpserver.OAuthConfig`
+
+| Field                    | Type               | Description                                              |
+|--------------------------|--------------------|----------------------------------------------------------|
+| `AuthorizationServerURL` | `string`           | Issuer URL of the external Authorization Server          |
+| `Scopes`                 | `[]string`         | OAuth scopes required to access MCP endpoints            |
+| `TokenVerifier`          | `auth.TokenVerifier` | Validates Bearer tokens (JWKS, introspection, etc.)    |
+
+### `pkg/mcpserver.NewJWKSTokenVerifier`
+
+```go
+func NewJWKSTokenVerifier(cfg JWKSVerifierConfig) auth.TokenVerifier
+```
+
+Built-in JWKS verifier that fetches public keys from `{IssuerURL}/.well-known/jwks.json`, caches them (default 1h), and validates JWT signature (RS256/384/512), `exp`, `iss`, and optionally `aud`.
+
+| Field        | Type            | Description                                         |
+|-------------|-----------------|-----------------------------------------------------|
+| `IssuerURL` | `string`        | Base URL of the AS (e.g. `https://tenant.auth0.com`)|
+| `Audience`  | `string`        | Expected `aud` claim (optional)                     |
+| `HTTPClient`| `*http.Client`  | Custom HTTP client (optional, default 10s timeout)  |
+| `CacheTTL`  | `time.Duration` | JWKS cache duration (optional, default 1h)          |
+
+### Authentication Modes
+
+The framework supports four modes based on configuration:
+- **None** — no auth options set → warning logged, server is not secured
+- **API Key only** — `WithAPIKey` set → `X-API-Key` header checked
+- **OAuth only** — `WithOAuth` set → Bearer token validated + metadata endpoint registered
+- **Both** — both set → dispatches based on `Authorization: Bearer` header presence
+
+When OAuth is enabled, the server registers `/.well-known/oauth-protected-resource` (RFC 9728) so OAuth-aware clients can discover the Authorization Server.
 
 `App.Run()` handles:
 - CLI flags: `--transport stdio|http`, `--addr localhost:8080`
 - Stdio transport (for Claude Desktop, VS Code subprocess)
 - HTTP transport with SSE (`/sse`) and Streamable HTTP (`/mcp`) endpoints
-- `X-API-Key` header authentication middleware
+- Authentication middleware (API Key, OAuth, or both)
 
 ### `pkg/mcpserver.RegisterTool`
 
@@ -219,7 +274,13 @@ Wraps any `domain.TypedTool` into a `ToolRegistrar` for the MCP SDK.
 
 ### `pkg/mcpserver.BaseEnv`
 
-Embed in your `serverEnv` struct. Provides `APIKey` field loaded from `X_API_KEY` env var via `LoadBaseEnv()`.
+Embed in your `serverEnv` struct. Provides:
+- `APIKey` — from `X_API_KEY` env var
+- `OAuthAuthorizationServer` — from `OAUTH_AUTHORIZATION_SERVER` env var
+- `OAuthScopes` — from `OAUTH_SCOPES` env var (comma-separated)
+- `OAuthScopesList()` — helper that returns scopes as `[]string`
+
+Loaded via `LoadBaseEnv()`.
 
 ## Checklist for a New Server
 

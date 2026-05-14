@@ -2,10 +2,16 @@
     "cSpell.language": "en,fr",
     "cSpell.allowCompoundWords": true,
     "cSpell.words": [
+        "Errorf",
+        "Getenv",
         "godotenv",
         "golangci",
+        "joho",
+        "jwks",
         "ldflags",
         "mcpserver",
+        "mytool",
+        "oauthex",
         "testdata",
         "tmpl"
     ]
