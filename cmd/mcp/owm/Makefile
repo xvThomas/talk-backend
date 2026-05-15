@@ -5,7 +5,7 @@ DOCKER_IMAGE := $(APP_NAME)
 VERSION      := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS      := -ldflags "-X talks/internal/version.Version=$(VERSION)"
 
-.PHONY: all build run dev lint clean dockerize help
+.PHONY: all build run dev lint clean dockerize docker-run help
 
 COLOR_RESET  = \033[0m
 COLOR_BOLD   = \033[1m
@@ -55,6 +55,10 @@ dockerize: ## Build Docker image
 	@$(ECHO) "$(COLOR_YELLOW)Building Docker image $(DOCKER_IMAGE):$(VERSION)...$(COLOR_RESET)"
 	docker build -f Dockerfile -t $(DOCKER_IMAGE):$(VERSION) -t $(DOCKER_IMAGE):latest ../../..
 	@$(ECHO) "$(COLOR_GREEN)✓ Docker image built: $(DOCKER_IMAGE):$(VERSION)$(COLOR_RESET)"
+
+docker-run: ## Run the Docker container with .env
+	@$(ECHO) "$(COLOR_YELLOW)Running $(DOCKER_IMAGE) container...$(COLOR_RESET)"
+	docker run --rm -p 8080:8080 --env-file .env $(DOCKER_IMAGE):latest
 
 help: ## Show help
 	@$(ECHO) "$(COLOR_BOLD)$(APP_NAME)$(COLOR_RESET)"
