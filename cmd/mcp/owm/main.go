@@ -18,9 +18,11 @@ func main() {
 	}
 
 	weatherTool := openweather.NewCurrentWeatherTool(env.OpenWeatherMapAPIKey)
+	forecastTool := openweather.NewForecast5Days3HoursWeatherTool(env.OpenWeatherMapAPIKey)
 
 	opts := []mcpserver.Option{
 		mcpserver.WithTools(mcpserver.RegisterTool(weatherTool)),
+		mcpserver.WithTools(mcpserver.RegisterTool(forecastTool)),
 	}
 	if env.APIKey != "" {
 		opts = append(opts, mcpserver.WithAPIKey(env.APIKey))

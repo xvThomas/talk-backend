@@ -203,7 +203,9 @@ func (a *App) runHTTP(addr string) {
 
 	// Wrap the mux with a response-capturing request logger for debugging.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Debug("incoming request", "method", r.Method, "path", r.URL.Path, "auth", r.Header.Get("Authorization") != "")
+		log.Debug("incoming request", "method", r.Method, "path", r.URL.Path,
+			"bearer", r.Header.Get("Authorization") != "",
+			"apiKey", r.Header.Get("X-API-Key") != "")
 		rw := &statusRecorder{ResponseWriter: w}
 		mux.ServeHTTP(rw, r)
 		log.Debug("response sent", "method", r.Method, "path", r.URL.Path, "status", rw.status)
