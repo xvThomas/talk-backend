@@ -8,7 +8,7 @@ import (
 // BaseEnv holds the environment configuration common to all MCP servers.
 type BaseEnv struct {
 	APIKey                   string // X_API_KEY — shared secret for authenticating HTTP clients
-	BaseURL                  string // BASE_URL — public-facing URL of this server (e.g. ngrok URL)
+	BaseURL                  string // BASE_URL — public-facing URL of this server (required for Claude Desktop)
 	OAuthAuthorizationServer string // OAUTH_AUTHORIZATION_SERVER — issuer URL of the external AS
 	OAuthAudience            string // OAUTH_AUDIENCE — expected aud claim in the JWT (API identifier)
 	OAuthScopes              string // OAUTH_SCOPES — comma-separated list of required scopes

@@ -210,9 +210,9 @@ MY_SERVICE_API_KEY=
 # The client must send this value in the X-API-Key header.
 X_API_KEY=
 
-# Public-facing base URL of this server (optional).
-# Required when behind a reverse proxy or tunnel (e.g. ngrok).
-# Example: https://xxxx.ngrok-free.app
+# Public-facing base URL of this server.
+# Required for Claude Desktop to connect (even without a reverse proxy).
+# Example: https://mcp.example.com or https://xxxx.ngrok-free.app
 BASE_URL=
 
 # OAuth 2.0 Authorization Server URL (optional for http transport).

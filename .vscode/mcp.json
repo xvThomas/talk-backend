@@ -2,9 +2,9 @@
   "servers": {
     "owm": {
       "type": "http",
-      "url": "http://localhost:8080/mcp",
+      "url": "https://mcp.owm.pixime.net/mcp",
       "headers": {
-        "X-API-Key": "mysecretkey"
+        "X-API-Key": "C!8;Fm2Kek/(=p)|/78ytmWKGM:sd9M2"
       }
     }
   }

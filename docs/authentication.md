@@ -284,14 +284,14 @@ Minimal configuration for local use (VS Code, tests).
 X_API_KEY=mysecretkey
 ```
 
-No need for `BASE_URL` or `OAUTH_*` variables.
+No need for `OAUTH_*` variables. However `BASE_URL` is still required for Claude Desktop to connect.
 
 ### 5.2. OAuth without Proxy
 
 For clients that send the `audience` parameter themselves in `/authorize`.
 
 ```env
-# Public URL of the server (required if behind a reverse proxy)
+# Public URL of the server (required for Claude Desktop to connect)
 BASE_URL=https://your-domain.example.com
 
 # Authorization Server URL (issuer)
@@ -315,7 +315,7 @@ OAUTH_CLIENT_SECRET=
 Full configuration for clients that do not send `audience` (Claude.ai).
 
 ```env
-# Public URL of the server (behind ngrok, Cloudflare Tunnel, etc.)
+# Public URL of the server (required for Claude Desktop — here behind ngrok)
 BASE_URL=https://xxxx.ngrok-free.dev
 
 # Auth0 Authorization Server URL
@@ -345,7 +345,7 @@ The proxy automatically injects:
 Full configuration for Keycloak as the Authorization Server.
 
 ```env
-# Public URL of the server (behind ngrok, Cloudflare Tunnel, etc.)
+# Public URL of the server (required for Claude Desktop — here behind ngrok)
 BASE_URL=https://xxxx.ngrok-free.dev
 
 # Keycloak Authorization Server URL (realm issuer)
