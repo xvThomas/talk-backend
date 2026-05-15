@@ -174,7 +174,7 @@ The application represents the client accessing your MCP server (Claude.ai, your
    - Note the **Client ID** and **Client Secret** (you will need them for the `.env`)
    - **Allowed Callback URLs**: `https://claude.ai/api/mcp/auth_callback`
      - Add other callback URLs separated by commas if needed
-   - **Allowed Web Origins**: `https://<your-ngrok-url>`
+   - **Allowed Web Origins**: `https://mcp.example.com`
    - **Grant Types** (in Advanced Settings → Grant Types): make sure **Authorization Code** and **Refresh Token** are checked
 6. Click **Save Changes**
 
@@ -234,7 +234,7 @@ The client represents the OAuth application (Claude.ai, your front-end, etc.).
    - **Valid redirect URIs**: `https://claude.ai/api/mcp/auth_callback`
      - Add other callback URLs as needed (one per line)
    - **Valid post logout redirect URIs**: `+` (all)
-   - **Web origins**: `https://<your-ngrok-url>`
+   - **Web origins**: `https://mcp.example.com`
 7. Click **Save**
 8. Go to the **Credentials** tab:
    - Note the **Client secret** (you will need it for the `.env`)
@@ -315,8 +315,8 @@ OAUTH_CLIENT_SECRET=
 Full configuration for clients that do not send `audience` (Claude.ai).
 
 ```env
-# Public URL of the server (required for Claude Desktop — here behind ngrok)
-BASE_URL=https://xxxx.ngrok-free.dev
+# Public URL of the server (required for Claude Desktop)
+BASE_URL=https://mcp.example.com
 
 # Auth0 Authorization Server URL
 OAUTH_AUTHORIZATION_SERVER=https://your-tenant.auth0.com
@@ -345,8 +345,8 @@ The proxy automatically injects:
 Full configuration for Keycloak as the Authorization Server.
 
 ```env
-# Public URL of the server (required for Claude Desktop — here behind ngrok)
-BASE_URL=https://xxxx.ngrok-free.dev
+# Public URL of the server (required for Claude Desktop)
+BASE_URL=https://mcp.example.com
 
 # Keycloak Authorization Server URL (realm issuer)
 OAUTH_AUTHORIZATION_SERVER=https://keycloak.example.com/realms/mcp
@@ -377,7 +377,7 @@ Both mechanisms are enabled simultaneously. The server accepts either one:
 ```env
 X_API_KEY=mysecretkey
 
-BASE_URL=https://xxxx.ngrok-free.dev
+BASE_URL=https://mcp.example.com
 OAUTH_AUTHORIZATION_SERVER=https://your-tenant.auth0.com
 OAUTH_AUDIENCE=owm-mcp
 OAUTH_SCOPES=
@@ -414,7 +414,7 @@ In Claude.ai → Settings → Integrations → Add MCP Server:
 
 | Field             | Value                                             |
 | ----------------- | ------------------------------------------------- |
-| **URL**           | `https://xxxx.ngrok-free.dev/mcp`                 |
+| **URL**           | `https://mcp.example.com/mcp`                     |
 | **Client ID**     | The Client ID of your Auth0 app (Regular Web App) |
 | **Client Secret** | The Client Secret of the same app                 |
 
@@ -436,5 +436,4 @@ LOG_LEVEL=DEBUG
 | `token has invalid issuer`                           | Issuer mismatch in the JWT                                | Verify that `OAUTH_AUTHORIZATION_SERVER` matches the Auth0 domain exactly  |
 | `response_keys` without `refresh_token`              | `offline_access` not requested or API does not allow it   | Auth0 → APIs → your API → Settings → enable **Allow Offline Access**       |
 | Status 403 after successful authentication           | DNS rebinding protection in the go-sdk                    | Automatically configured when `BASE_URL` is set (proxy enabled)            |
-| No requests visible in ngrok                         | The ngrok tunnel is not active or the URL has changed     | Verify that ngrok is running and that the URL in `BASE_URL` matches        |
 | `Invalid authorization code` on `/token`             | The code has expired or the `redirect_uri` does not match | Verify the Allowed Callback URLs in Auth0                                  |
