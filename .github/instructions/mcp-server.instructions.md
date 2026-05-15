@@ -100,6 +100,7 @@ func loadServerEnv(envFiles ...string) (*serverEnv, error) {
 ```
 
 Key rules:
+
 - Always embed `mcpserver.BaseEnv` — it handles `X_API_KEY`, `OAUTH_AUTHORIZATION_SERVER`, and `OAUTH_SCOPES`.
 - Call `mcpserver.LoadBaseEnv()` after `godotenv.Load`.
 - Validate only your server-specific variables; auth configuration is handled by the framework at runtime.
@@ -152,6 +153,7 @@ func main() {
 ```
 
 Key rules:
+
 - `main.go` must stay thin: load config, create tools, wire app, run.
 - No business logic in `main.go`.
 - Use `mcpserver.NewApp` constructor with functional options (`WithAPIKey`, `WithOAuth`, `WithTools`).
@@ -196,7 +198,35 @@ EXPOSE 8080
 ENTRYPOINT ["<server-name>", "--transport", "http", "--addr", "0.0.0.0:8080"]
 ```
 
-### 8. Create a `.env` file (local dev only, never commit)
+### 8. Create `.env.example` (committed, no real values)
+
+This file documents all required and optional environment variables. Start from this base and add your server-specific variables:
+
+```env
+# <server-name>-specific variables
+MY_SERVICE_API_KEY=
+
+# Shared secret for authenticating MCP HTTP clients (optional for http transport).
+# The client must send this value in the X-API-Key header.
+X_API_KEY=
+
+# Public-facing base URL of this server (optional).
+# Required when behind a reverse proxy or tunnel (e.g. ngrok).
+# Example: https://xxxx.ngrok-free.app
+BASE_URL=
+
+# OAuth 2.0 Authorization Server URL (optional for http transport).
+# When set, the server acts as an OAuth Resource Server and validates Bearer tokens.
+OAUTH_AUTHORIZATION_SERVER=
+
+# Expected audience (aud) claim in the JWT — typically the API identifier in Auth0.
+OAUTH_AUDIENCE=
+
+# Comma-separated list of OAuth scopes required to access the MCP endpoints (optional).
+OAUTH_SCOPES=
+```
+
+### 9. Create a `.env` file (local dev only, never commit)
 
 ```env
 X_API_KEY=your-dev-secret
@@ -219,19 +249,19 @@ Creates an `App` configured with functional options.
 
 ### Options
 
-| Option                   | Description                                            |
-|--------------------------|--------------------------------------------------------|
-| `WithAPIKey(key)`        | Enables X-API-Key header auth for HTTP transport       |
-| `WithOAuth(cfg)`         | Enables OAuth 2.0 Bearer token auth for HTTP transport |
-| `WithTools(tools...)`    | Registers tools on the MCP server                      |
+| Option                | Description                                            |
+| --------------------- | ------------------------------------------------------ |
+| `WithAPIKey(key)`     | Enables X-API-Key header auth for HTTP transport       |
+| `WithOAuth(cfg)`      | Enables OAuth 2.0 Bearer token auth for HTTP transport |
+| `WithTools(tools...)` | Registers tools on the MCP server                      |
 
 ### `pkg/mcpserver.OAuthConfig`
 
-| Field                    | Type               | Description                                              |
-|--------------------------|--------------------|----------------------------------------------------------|
-| `AuthorizationServerURL` | `string`           | Issuer URL of the external Authorization Server          |
-| `Scopes`                 | `[]string`         | OAuth scopes required to access MCP endpoints            |
-| `TokenVerifier`          | `auth.TokenVerifier` | Validates Bearer tokens (JWKS, introspection, etc.)    |
+| Field                    | Type                 | Description                                         |
+| ------------------------ | -------------------- | --------------------------------------------------- |
+| `AuthorizationServerURL` | `string`             | Issuer URL of the external Authorization Server     |
+| `Scopes`                 | `[]string`           | OAuth scopes required to access MCP endpoints       |
+| `TokenVerifier`          | `auth.TokenVerifier` | Validates Bearer tokens (JWKS, introspection, etc.) |
 
 ### `pkg/mcpserver.NewJWKSTokenVerifier`
 
@@ -241,16 +271,17 @@ func NewJWKSTokenVerifier(cfg JWKSVerifierConfig) auth.TokenVerifier
 
 Built-in JWKS verifier that fetches public keys from `{IssuerURL}/.well-known/jwks.json`, caches them (default 1h), and validates JWT signature (RS256/384/512), `exp`, `iss`, and optionally `aud`.
 
-| Field        | Type            | Description                                         |
-|-------------|-----------------|-----------------------------------------------------|
-| `IssuerURL` | `string`        | Base URL of the AS (e.g. `https://tenant.auth0.com`)|
-| `Audience`  | `string`        | Expected `aud` claim (optional)                     |
-| `HTTPClient`| `*http.Client`  | Custom HTTP client (optional, default 10s timeout)  |
-| `CacheTTL`  | `time.Duration` | JWKS cache duration (optional, default 1h)          |
+| Field        | Type            | Description                                          |
+| ------------ | --------------- | ---------------------------------------------------- |
+| `IssuerURL`  | `string`        | Base URL of the AS (e.g. `https://tenant.auth0.com`) |
+| `Audience`   | `string`        | Expected `aud` claim (optional)                      |
+| `HTTPClient` | `*http.Client`  | Custom HTTP client (optional, default 10s timeout)   |
+| `CacheTTL`   | `time.Duration` | JWKS cache duration (optional, default 1h)           |
 
 ### Authentication Modes
 
 The framework supports four modes based on configuration:
+
 - **None** — no auth options set → warning logged, server is not secured
 - **API Key only** — `WithAPIKey` set → `X-API-Key` header checked
 - **OAuth only** — `WithOAuth` set → Bearer token validated + metadata endpoint registered
@@ -259,6 +290,7 @@ The framework supports four modes based on configuration:
 When OAuth is enabled, the server registers `/.well-known/oauth-protected-resource` (RFC 9728) so OAuth-aware clients can discover the Authorization Server.
 
 `App.Run()` handles:
+
 - CLI flags: `--transport stdio|http`, `--addr localhost:8080`
 - Stdio transport (for Claude Desktop, VS Code subprocess)
 - HTTP transport with SSE (`/sse`) and Streamable HTTP (`/mcp`) endpoints
@@ -275,6 +307,7 @@ Wraps any `domain.TypedTool` into a `ToolRegistrar` for the MCP SDK.
 ### `pkg/mcpserver.BaseEnv`
 
 Embed in your `serverEnv` struct. Provides:
+
 - `APIKey` — from `X_API_KEY` env var
 - `OAuthAuthorizationServer` — from `OAUTH_AUTHORIZATION_SERVER` env var
 - `OAuthScopes` — from `OAUTH_SCOPES` env var (comma-separated)
@@ -290,6 +323,7 @@ Loaded via `LoadBaseEnv()`.
 - [ ] `cmd/mcp/<server-name>/Makefile` — copy, change `APP_NAME`
 - [ ] `cmd/mcp/<server-name>/.air.toml` — copy as-is
 - [ ] `cmd/mcp/<server-name>/Dockerfile` — copy, change binary name
-- [ ] `.env` for local development
+- [ ] `cmd/mcp/<server-name>/.env.example` — base template with all variables (no real values)
+- [ ] `.env` for local development (never commit)
 - [ ] `go build ./...` passes
 - [ ] `make run` starts successfully

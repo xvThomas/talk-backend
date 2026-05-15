@@ -34,6 +34,30 @@ func RegisterTool[TInput, TOutput any](tool domain.TypedTool[TInput, TOutput]) T
 	}
 }
 
+// ASProxyConfig enables the Authorization Server proxy mode. When set, the MCP
+// server exposes its own OAuth endpoints that inject the required audience
+// before forwarding to the upstream Authorization Server. This is necessary
+// for OAuth clients (e.g. Claude.ai) that do not send the audience parameter
+// in authorization requests (Auth0 requires it to issue a JWT access token).
+type ASProxyConfig struct {
+	// Audience is the audience value to inject into upstream authorize requests
+	// (e.g. "owm-mcp"). Required.
+	Audience string
+
+	// UpstreamAuthorizeURL is the upstream authorization endpoint. When empty,
+	// defaults to AuthorizationServerURL + "/authorize".
+	UpstreamAuthorizeURL string
+
+	// UpstreamTokenURL is the upstream token endpoint. When empty, defaults to
+	// AuthorizationServerURL + "/oauth/token".
+	UpstreamTokenURL string
+
+	// ClientSecret is the OAuth client secret to inject into token proxy
+	// requests. Optional: only needed for confidential clients whose secret
+	// is not sent by the OAuth client itself.
+	ClientSecret string
+}
+
 // OAuthConfig holds the OAuth 2.0 configuration for the server acting as a
 // Resource Server. The Authorization Server (e.g. Auth0, Keycloak) is external.
 type OAuthConfig struct {
@@ -54,6 +78,12 @@ type OAuthConfig struct {
 	// the JWT signature against the AS's JWKS endpoint or call the AS's
 	// token introspection endpoint.
 	TokenVerifier auth.TokenVerifier
+
+	// ASProxy enables the Authorization Server proxy mode. When non-nil, the
+	// server exposes /authorize, /token, and
+	// /.well-known/oauth-authorization-server endpoints that proxy to the
+	// upstream AS while injecting the required audience parameter.
+	ASProxy *ASProxyConfig
 }
 
 // Option configures an App. Use the With* functions to create options.
@@ -156,8 +186,14 @@ func (a *App) runHTTP(addr string) {
 		return a.newServer()
 	}
 
-	sseHandler := mcp.NewSSEHandler(serverFactory, nil)
-	streamableHandler := mcp.NewStreamableHTTPHandler(serverFactory, nil)
+	// Disable localhost DNS rebinding protection when behind a reverse proxy.
+	behindProxy := a.oauth != nil && a.oauth.ResourceBaseURL != ""
+	sseHandler := mcp.NewSSEHandler(serverFactory, &mcp.SSEOptions{
+		DisableLocalhostProtection: behindProxy,
+	})
+	streamableHandler := mcp.NewStreamableHTTPHandler(serverFactory, &mcp.StreamableHTTPOptions{
+		DisableLocalhostProtection: behindProxy,
+	})
 
 	mux := http.NewServeMux()
 	middleware := a.buildAuthMiddleware(addr, mux)
@@ -165,8 +201,16 @@ func (a *App) runHTTP(addr string) {
 	mux.Handle("/sse", middleware(sseHandler))
 	mux.Handle("/mcp", middleware(streamableHandler))
 
+	// Wrap the mux with a response-capturing request logger for debugging.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Debug("incoming request", "method", r.Method, "path", r.URL.Path, "auth", r.Header.Get("Authorization") != "")
+		rw := &statusRecorder{ResponseWriter: w}
+		mux.ServeHTTP(rw, r)
+		log.Debug("response sent", "method", r.Method, "path", r.URL.Path, "status", rw.status)
+	})
+
 	log.Info("HTTP server listening", "addr", addr, "sse", "/sse", "streamable", "/mcp")
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Error("HTTP server failed", "error", err)
 		os.Exit(1)
 	}
@@ -213,10 +257,22 @@ func (a *App) buildAuthMiddleware(addr string, mux *http.ServeMux) func(http.Han
 // registerOAuthMetadata serves the RFC 9728 Protected Resource Metadata
 // at /.well-known/oauth-protected-resource so that OAuth-aware clients can
 // discover which Authorization Server to use.
+//
+// When ASProxy is configured, the authorization_servers entry points to this
+// server itself (the proxy) instead of the upstream AS. The proxy endpoints
+// inject the audience parameter that upstream AS (e.g. Auth0) requires to
+// issue a JWT access token.
 func (a *App) registerOAuthMetadata(mux *http.ServeMux, baseURL string) {
+	asURL := a.oauth.AuthorizationServerURL
+	if a.oauth.ASProxy != nil {
+		// Point OAuth clients at the proxy (this server) rather than upstream.
+		asURL = baseURL
+		registerASProxy(mux, baseURL, a.oauth)
+	}
+
 	metadata := &oauthex.ProtectedResourceMetadata{
 		Resource:             baseURL + "/mcp",
-		AuthorizationServers: []string{a.oauth.AuthorizationServerURL},
+		AuthorizationServers: []string{asURL},
 		ScopesSupported:      a.oauth.Scopes,
 	}
 	mux.Handle("/.well-known/oauth-protected-resource",
@@ -259,4 +315,22 @@ func apiKeyAuthMiddleware(expectedKey string) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// statusRecorder wraps http.ResponseWriter to capture the status code.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	return r.ResponseWriter.Write(b)
 }

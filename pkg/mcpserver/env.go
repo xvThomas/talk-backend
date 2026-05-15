@@ -12,6 +12,7 @@ type BaseEnv struct {
 	OAuthAuthorizationServer string // OAUTH_AUTHORIZATION_SERVER — issuer URL of the external AS
 	OAuthAudience            string // OAUTH_AUDIENCE — expected aud claim in the JWT (API identifier)
 	OAuthScopes              string // OAUTH_SCOPES — comma-separated list of required scopes
+	OAuthClientSecret        string // OAUTH_CLIENT_SECRET — client secret injected by the AS proxy token endpoint (confidential clients only)
 }
 
 // LoadBaseEnv reads the common MCP server environment variables.
@@ -22,6 +23,7 @@ func LoadBaseEnv() BaseEnv {
 		OAuthAuthorizationServer: os.Getenv("OAUTH_AUTHORIZATION_SERVER"),
 		OAuthAudience:            os.Getenv("OAUTH_AUDIENCE"),
 		OAuthScopes:              os.Getenv("OAUTH_SCOPES"),
+		OAuthClientSecret:        os.Getenv("OAUTH_CLIENT_SECRET"),
 	}
 }
 

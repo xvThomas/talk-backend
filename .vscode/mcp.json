@@ -4,7 +4,7 @@
       "type": "http",
       "url": "http://localhost:8080/mcp",
       "headers": {
-        "X-API-Key": "your_api_key_here"
+        "X-API-Key": "mysecretkey"
       }
     }
   }

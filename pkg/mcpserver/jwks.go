@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"strings"
@@ -61,8 +62,12 @@ func NewJWKSTokenVerifier(cfg JWKSVerifierConfig) auth.TokenVerifier {
 		ttl:        cfg.CacheTTL,
 	}
 
+	// Auth0 always uses a trailing slash in the iss claim. Normalize to
+	// include the trailing slash so the parser matches the actual token.
+	issuer := strings.TrimRight(cfg.IssuerURL, "/") + "/"
+
 	parserOpts := []jwt.ParserOption{
-		jwt.WithIssuer(cfg.IssuerURL + "/"),
+		jwt.WithIssuer(issuer),
 		jwt.WithExpirationRequired(),
 		jwt.WithIssuedAt(),
 		jwt.WithValidMethods([]string{"RS256", "RS384", "RS512"}),
@@ -70,8 +75,6 @@ func NewJWKSTokenVerifier(cfg JWKSVerifierConfig) auth.TokenVerifier {
 	if cfg.Audience != "" {
 		parserOpts = append(parserOpts, jwt.WithAudience(cfg.Audience))
 	}
-	// Also accept issuer without trailing slash (some AS use either form).
-	parserOpts = append(parserOpts, jwt.WithIssuer(cfg.IssuerURL))
 
 	parser := jwt.NewParser(parserOpts...)
 
@@ -91,12 +94,15 @@ func NewJWKSTokenVerifier(cfg JWKSVerifierConfig) auth.TokenVerifier {
 		var claims tokenClaims
 		parsed, err := parser.ParseWithClaims(token, &claims, keyFunc)
 		if err != nil {
+			slog.Debug("jwks verifier: token parse failed", "error", err)
 			return nil, fmt.Errorf("%w: %v", auth.ErrInvalidToken, err)
 		}
 		if !parsed.Valid {
+			slog.Debug("jwks verifier: token not valid after parsing")
 			return nil, fmt.Errorf("%w: token is not valid", auth.ErrInvalidToken)
 		}
 
+		slog.Debug("jwks verifier: token verified", "sub", claims.Subject, "iss", claims.Issuer, "aud", claims.Audience, "scope", claims.Scope)
 		info := &auth.TokenInfo{
 			UserID: claims.Subject,
 		}

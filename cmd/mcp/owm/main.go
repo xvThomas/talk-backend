@@ -26,7 +26,7 @@ func main() {
 		opts = append(opts, mcpserver.WithAPIKey(env.APIKey))
 	}
 	if env.OAuthAuthorizationServer != "" {
-		opts = append(opts, mcpserver.WithOAuth(&mcpserver.OAuthConfig{
+		oauthCfg := &mcpserver.OAuthConfig{
 			AuthorizationServerURL: env.OAuthAuthorizationServer,
 			ResourceBaseURL:        env.BaseURL,
 			Scopes:                 env.OAuthScopesList(),
@@ -34,7 +34,14 @@ func main() {
 				IssuerURL: env.OAuthAuthorizationServer,
 				Audience:  env.OAuthAudience,
 			}),
-		}))
+		}
+		if env.OAuthAudience != "" {
+			oauthCfg.ASProxy = &mcpserver.ASProxyConfig{
+				Audience:     env.OAuthAudience,
+				ClientSecret: env.OAuthClientSecret,
+			}
+		}
+		opts = append(opts, mcpserver.WithOAuth(oauthCfg))
 	}
 
 	app := mcpserver.NewApp("owm-mcp", "1.0.0", opts...)
