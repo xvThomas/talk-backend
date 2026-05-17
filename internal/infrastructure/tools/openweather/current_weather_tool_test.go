@@ -56,7 +56,7 @@ func TestCurrentWeatherTool_Call_Success(t *testing.T) {
 	defer srv.Close()
 
 	tool := newCurrentWeatherToolWithBaseURL("testkey", srv.URL, srv.Client())
-	result, err := tool.Call(context.Background(), CurrentWeatherToolInput{City: "Paris"})
+	result, err := tool.Call(context.Background(), CurrentWeatherToolInput{Lat: 48.8534, Lon: 2.3488})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -109,9 +109,9 @@ func TestCurrentWeatherTool_Call_Success(t *testing.T) {
 
 func TestCurrentWeatherTool_Call_EmptyCity(t *testing.T) {
 	tool := NewCurrentWeatherTool("key")
-	_, err := tool.Call(context.Background(), CurrentWeatherToolInput{City: ""})
+	_, err := tool.Call(context.Background(), CurrentWeatherToolInput{Lat: 0, Lon: 0})
 	if err == nil {
-		t.Error("expected error for empty city")
+		t.Error("expected error for zero coordinates")
 	}
 }
 
@@ -122,7 +122,7 @@ func TestCurrentWeatherTool_Call_APIError(t *testing.T) {
 	defer srv.Close()
 
 	tool := newCurrentWeatherToolWithBaseURL("badkey", srv.URL, srv.Client())
-	_, err := tool.Call(context.Background(), CurrentWeatherToolInput{City: "Paris"})
+	_, err := tool.Call(context.Background(), CurrentWeatherToolInput{Lat: 48.8534, Lon: 2.3488})
 	if err == nil {
 		t.Error("expected error for non-200 API response")
 	}
@@ -137,7 +137,7 @@ func TestCurrentWeatherTool_Call_WithPrecipitation(t *testing.T) {
 	defer srv.Close()
 
 	tool := newCurrentWeatherToolWithBaseURL("testkey", srv.URL, srv.Client())
-	result, err := tool.Call(context.Background(), CurrentWeatherToolInput{City: "London"})
+	result, err := tool.Call(context.Background(), CurrentWeatherToolInput{Lat: 51.5085, Lon: -0.1257})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestCurrentWeatherTool_Integration(t *testing.T) {
 	}
 
 	tool := NewCurrentWeatherTool(apiKey)
-	result, err := tool.Call(context.Background(), CurrentWeatherToolInput{City: "Paris"})
+	result, err := tool.Call(context.Background(), CurrentWeatherToolInput{Lat: 48.8566, Lon: 2.3522})
 	if err != nil {
 		t.Fatalf("integration call failed: %v", err)
 	}

@@ -18,11 +18,29 @@ func main() {
 	}
 
 	weatherTool := openweather.NewCurrentWeatherTool(env.OpenWeatherMapAPIKey)
-	forecastTool := openweather.NewForecast5Days3HoursWeatherTool(env.OpenWeatherMapAPIKey)
+	geocodingTool := openweather.NewGeocodingTool(env.OpenWeatherMapAPIKey)
+	reverseGeocodingTool := openweather.NewReverseGeocodingTool(env.OpenWeatherMapAPIKey)
+	airPollutionTool := openweather.NewAirPollutionTool(env.OpenWeatherMapAPIKey)
+	airPollutionForecastTool := openweather.NewAirPollutionForecastTool(env.OpenWeatherMapAPIKey)
 
 	opts := []mcpserver.Option{
 		mcpserver.WithTools(mcpserver.RegisterTool(weatherTool)),
-		mcpserver.WithTools(mcpserver.RegisterTool(forecastTool)),
+		mcpserver.WithTools(mcpserver.RegisterTool(geocodingTool)),
+		mcpserver.WithTools(mcpserver.RegisterTool(reverseGeocodingTool)),
+		mcpserver.WithTools(mcpserver.RegisterTool(airPollutionTool)),
+		mcpserver.WithTools(mcpserver.RegisterTool(airPollutionForecastTool)),
+	}
+
+	if env.FreePlan {
+		forecastTool := openweather.NewForecast5Days3HoursWeatherTool(env.OpenWeatherMapAPIKey)
+		opts = append(opts, mcpserver.WithTools(mcpserver.RegisterTool(forecastTool)))
+	} else {
+		hourlyForecastTool := openweather.NewHourlyForecastTool(env.OpenWeatherMapAPIKey)
+		dailyForecastTool := openweather.NewDailyForecastTool(env.OpenWeatherMapAPIKey)
+		opts = append(opts,
+			mcpserver.WithTools(mcpserver.RegisterTool(hourlyForecastTool)),
+			mcpserver.WithTools(mcpserver.RegisterTool(dailyForecastTool)),
+		)
 	}
 	if env.APIKey != "" {
 		opts = append(opts, mcpserver.WithAPIKey(env.APIKey))

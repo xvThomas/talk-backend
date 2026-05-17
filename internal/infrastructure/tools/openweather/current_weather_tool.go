@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"talks/internal/domain"
 	"time"
 )
@@ -14,7 +13,8 @@ const defaultBaseURL = "https://api.openweathermap.org/data/2.5"
 
 // CurrentWeatherToolInput is the typed input for CurrentWeatherTool.
 type CurrentWeatherToolInput struct {
-	City string `json:"city"`
+	Lat float64 `json:"lat" description:"Latitude of the location"`
+	Lon float64 `json:"lon" description:"Longitude of the location"`
 }
 
 // WeatherCondition contains weather condition details.
@@ -81,6 +81,7 @@ func NewCurrentWeatherTool(apiKey string) domain.TypedTool[CurrentWeatherToolInp
 }
 
 var _ domain.TypedTool[CurrentWeatherToolInput, CurrentWeatherToolOutput] = (*CurrentWeatherTool)(nil)
+
 // var _ domain.MCPPromptProvider = (*CurrentWeatherTool)(nil)
 
 // newCurrentWeatherToolWithBaseURL creates a CurrentWeatherTool with a custom base URL (for testing).
@@ -115,16 +116,16 @@ func (t *CurrentWeatherTool) Name() string { return "get_current_weather" }
 
 // Description describes what the tool does.
 func (t *CurrentWeatherTool) Description() string {
-	return "Get the current weather for a given city. ALWAYS use this tool for any weather-related question — never answer from training knowledge, which is outdated. Returns live data: coordinates, temperature, feels-like, min/max temp, humidity, pressure, wind speed and direction, cloudiness, visibility, precipitation, and sunrise/sunset times."
+	return "Get the current weather for a given location specified by latitude and longitude. Use the geocode_city tool first to convert a city name to coordinates. Returns live data: coordinates, temperature, feels-like, min/max temp, humidity, pressure, wind speed and direction, cloudiness, visibility, precipitation, and sunrise/sunset times."
 }
 
 // Call calls the OpenWeatherMap API and returns a typed output struct.
 func (t *CurrentWeatherTool) Call(ctx context.Context, input CurrentWeatherToolInput) (CurrentWeatherToolOutput, error) {
-	if input.City == "" {
-		return CurrentWeatherToolOutput{}, fmt.Errorf("parameter 'city' must be a non-empty string")
+	if input.Lat == 0 && input.Lon == 0 {
+		return CurrentWeatherToolOutput{}, fmt.Errorf("parameters 'lat' and 'lon' must not both be zero")
 	}
 
-	response, err := t.fetchWeather(ctx, input.City)
+	response, err := t.fetchWeather(ctx, input.Lat, input.Lon)
 	if err != nil {
 		return CurrentWeatherToolOutput{}, err
 	}
@@ -222,9 +223,9 @@ type weatherResponse struct {
 	Name     string `json:"name"`
 }
 
-func (t *CurrentWeatherTool) fetchWeather(ctx context.Context, city string) (*weatherResponse, error) {
-	endpoint := fmt.Sprintf("%s/weather?q=%s&appid=%s&units=metric",
-		t.baseURL, url.QueryEscape(city), t.apiKey)
+func (t *CurrentWeatherTool) fetchWeather(ctx context.Context, lat, lon float64) (*weatherResponse, error) {
+	endpoint := fmt.Sprintf("%s/weather?lat=%f&lon=%f&appid=%s&units=metric",
+		t.baseURL, lat, lon, t.apiKey)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {

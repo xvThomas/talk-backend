@@ -4,6 +4,8 @@
 
 # Compiled binaries
 bin/
+*.exe
+/owm
 
 # Coverage artefacts
 coverage.out
@@ -11,3 +13,4 @@ coverage.html
 
 #misc
 tmp/
+.vscode/mcp.json

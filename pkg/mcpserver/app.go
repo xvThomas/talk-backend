@@ -19,18 +19,24 @@ import (
 
 // ToolRegistrar registers a tool on an mcp.Server.
 // Use RegisterTool to create one from a domain.TypedTool.
-type ToolRegistrar func(s *mcp.Server)
+type ToolRegistrar struct {
+	Name     string
+	Register func(s *mcp.Server)
+}
 
 // RegisterTool returns a ToolRegistrar that adds the given TypedTool to an mcp.Server.
 func RegisterTool[TInput, TOutput any](tool domain.TypedTool[TInput, TOutput]) ToolRegistrar {
-	return func(s *mcp.Server) {
-		mcp.AddTool(s, &mcp.Tool{
-			Name:        tool.Name(),
-			Description: tool.Description(),
-		}, func(ctx context.Context, _ *mcp.CallToolRequest, args TInput) (*mcp.CallToolResult, TOutput, error) {
-			out, err := tool.Call(ctx, args)
-			return nil, out, err
-		})
+	return ToolRegistrar{
+		Name: tool.Name(),
+		Register: func(s *mcp.Server) {
+			mcp.AddTool(s, &mcp.Tool{
+				Name:        tool.Name(),
+				Description: tool.Description(),
+			}, func(ctx context.Context, _ *mcp.CallToolRequest, args TInput) (*mcp.CallToolResult, TOutput, error) {
+				out, err := tool.Call(ctx, args)
+				return nil, out, err
+			})
+		},
 	}
 }
 
@@ -149,6 +155,12 @@ func (a *App) Run() {
 
 	log.Info("MCP Server", "name", a.name, "version", a.version)
 
+	toolNames := make([]string, len(a.tools))
+	for i, t := range a.tools {
+		toolNames[i] = t.Name
+	}
+	log.Info("Available tools", "count", len(toolNames), "tools", toolNames)
+
 	switch *transport {
 	case "stdio":
 		a.runStdio()
@@ -163,8 +175,8 @@ func (a *App) Run() {
 
 func (a *App) newServer() *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: a.name, Version: a.version}, nil)
-	for _, register := range a.tools {
-		register(s)
+	for _, t := range a.tools {
+		t.Register(s)
 	}
 	return s
 }

@@ -5,15 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"talks/internal/domain"
 	"time"
 )
 
 // ForecastToolInput is the typed input for Forecast5Days3HoursWeatherTool.
 type ForecastToolInput struct {
-	City  string `json:"city"`
-	Count int    `json:"count,omitempty" description:"Optional number of 3-hour timestamps to return (1-40). If omitted, returns all 40 timestamps (5 days)."`
+	Lat   float64 `json:"lat" description:"Latitude of the location"`
+	Lon   float64 `json:"lon" description:"Longitude of the location"`
+	Count int     `json:"count,omitempty" description:"Optional number of 3-hour timestamps to return (1-40). If omitted, returns all 40 timestamps (5 days)."`
 }
 
 // ForecastEntry represents a single 3-hour forecast data point.
@@ -79,16 +79,16 @@ func (t *Forecast5Days3HoursWeatherTool) Name() string { return "get_weather_for
 
 // Description describes what the tool does.
 func (t *Forecast5Days3HoursWeatherTool) Description() string {
-	return "Get the weather forecast for the next 5 days with 3-hour intervals for a given city. Returns up to 40 data points including temperature, humidity, wind, precipitation probability, and weather conditions. Use the optional 'count' parameter to limit the number of 3-hour timestamps returned."
+	return "Get the weather forecast for the next 5 days with 3-hour intervals for a given location specified by latitude and longitude. Use the geocode_city tool first to convert a city name to coordinates. Returns up to 40 data points including temperature, humidity, wind, precipitation probability, and weather conditions. Use the optional 'count' parameter to limit the number of 3-hour timestamps returned."
 }
 
 // Call calls the OpenWeatherMap 5-day/3-hour forecast API and returns a typed output struct.
 func (t *Forecast5Days3HoursWeatherTool) Call(ctx context.Context, input ForecastToolInput) (ForecastToolOutput, error) {
-	if input.City == "" {
-		return ForecastToolOutput{}, fmt.Errorf("parameter 'city' must be a non-empty string")
+	if input.Lat == 0 && input.Lon == 0 {
+		return ForecastToolOutput{}, fmt.Errorf("parameters 'lat' and 'lon' must not both be zero")
 	}
 
-	response, err := t.fetchForecast(ctx, input.City, input.Count)
+	response, err := t.fetchForecast(ctx, input.Lat, input.Lon, input.Count)
 	if err != nil {
 		return ForecastToolOutput{}, err
 	}
@@ -202,9 +202,9 @@ type forecastResponse struct {
 	} `json:"city"`
 }
 
-func (t *Forecast5Days3HoursWeatherTool) fetchForecast(ctx context.Context, city string, count int) (*forecastResponse, error) {
-	endpoint := fmt.Sprintf("%s/forecast?q=%s&appid=%s&units=metric",
-		t.baseURL, url.QueryEscape(city), t.apiKey)
+func (t *Forecast5Days3HoursWeatherTool) fetchForecast(ctx context.Context, lat, lon float64, count int) (*forecastResponse, error) {
+	endpoint := fmt.Sprintf("%s/forecast?lat=%f&lon=%f&appid=%s&units=metric",
+		t.baseURL, lat, lon, t.apiKey)
 
 	if count > 0 {
 		endpoint += fmt.Sprintf("&cnt=%d", count)

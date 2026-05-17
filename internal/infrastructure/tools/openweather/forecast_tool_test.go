@@ -128,7 +128,7 @@ func TestForecast5Days3HoursWeatherTool_Call_Success(t *testing.T) {
 	defer srv.Close()
 
 	tool := newForecast5Days3HoursWeatherToolWithBaseURL("testkey", srv.URL, srv.Client())
-	result, err := tool.Call(context.Background(), ForecastToolInput{City: "Paris"})
+	result, err := tool.Call(context.Background(), ForecastToolInput{Lat: 48.8534, Lon: 2.3488})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestForecast5Days3HoursWeatherTool_Call_WithCountLimit(t *testing.T) {
 	defer srv.Close()
 
 	tool := newForecast5Days3HoursWeatherToolWithBaseURL("testkey", srv.URL, srv.Client())
-	result, err := tool.Call(context.Background(), ForecastToolInput{City: "Paris", Count: 3})
+	result, err := tool.Call(context.Background(), ForecastToolInput{Lat: 48.8534, Lon: 2.3488, Count: 3})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestForecast5Days3HoursWeatherTool_Call_WithoutCountLimit(t *testing.T) {
 	defer srv.Close()
 
 	tool := newForecast5Days3HoursWeatherToolWithBaseURL("testkey", srv.URL, srv.Client())
-	_, err := tool.Call(context.Background(), ForecastToolInput{City: "Paris"})
+	_, err := tool.Call(context.Background(), ForecastToolInput{Lat: 48.8534, Lon: 2.3488})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -258,9 +258,9 @@ func TestForecast5Days3HoursWeatherTool_Call_WithoutCountLimit(t *testing.T) {
 
 func TestForecast5Days3HoursWeatherTool_Call_EmptyCity(t *testing.T) {
 	tool := NewForecast5Days3HoursWeatherTool("key")
-	_, err := tool.Call(context.Background(), ForecastToolInput{City: ""})
+	_, err := tool.Call(context.Background(), ForecastToolInput{Lat: 0, Lon: 0})
 	if err == nil {
-		t.Error("expected error for empty city")
+		t.Error("expected error for zero coordinates")
 	}
 }
 
@@ -271,7 +271,7 @@ func TestForecast5Days3HoursWeatherTool_Call_APIError(t *testing.T) {
 	defer srv.Close()
 
 	tool := newForecast5Days3HoursWeatherToolWithBaseURL("badkey", srv.URL, srv.Client())
-	_, err := tool.Call(context.Background(), ForecastToolInput{City: "Paris"})
+	_, err := tool.Call(context.Background(), ForecastToolInput{Lat: 48.8534, Lon: 2.3488})
 	if err == nil {
 		t.Error("expected error for non-200 API response")
 	}
@@ -302,7 +302,7 @@ func TestForecast5Days3HoursWeatherTool_Call_WithPrecipitation(t *testing.T) {
 	defer srv.Close()
 
 	tool := newForecast5Days3HoursWeatherToolWithBaseURL("testkey", srv.URL, srv.Client())
-	result, err := tool.Call(context.Background(), ForecastToolInput{City: "London"})
+	result, err := tool.Call(context.Background(), ForecastToolInput{Lat: 51.5085, Lon: -0.1257})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestForecast5Days3HoursWeatherTool_Integration(t *testing.T) {
 	}
 
 	tool := NewForecast5Days3HoursWeatherTool(apiKey)
-	result, err := tool.Call(context.Background(), ForecastToolInput{City: "Paris"})
+	result, err := tool.Call(context.Background(), ForecastToolInput{Lat: 48.8566, Lon: 2.3522})
 	if err != nil {
 		t.Fatalf("integration call failed: %v", err)
 	}
