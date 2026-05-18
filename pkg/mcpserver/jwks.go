@@ -94,11 +94,11 @@ func NewJWKSTokenVerifier(cfg JWKSVerifierConfig) auth.TokenVerifier {
 		var claims tokenClaims
 		parsed, err := parser.ParseWithClaims(token, &claims, keyFunc)
 		if err != nil {
-			slog.Debug("jwks verifier: token parse failed", "error", err)
+			slog.Debug("jwks verifier: token parse failed", "error", err, "token", token)
 			return nil, fmt.Errorf("%w: %v", auth.ErrInvalidToken, err)
 		}
 		if !parsed.Valid {
-			slog.Debug("jwks verifier: token not valid after parsing")
+			slog.Debug("jwks verifier: token not valid after parsing", "token", token)
 			return nil, fmt.Errorf("%w: token is not valid", auth.ErrInvalidToken)
 		}
 
