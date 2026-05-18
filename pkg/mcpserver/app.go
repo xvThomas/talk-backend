@@ -1,10 +1,13 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -215,9 +218,29 @@ func (a *App) runHTTP(addr string) {
 
 	// Wrap the mux with a response-capturing request logger for debugging.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Debug("incoming request", "method", r.Method, "path", r.URL.Path,
+		var rpcMethod string
+		if r.Body != nil && r.Method == http.MethodPost {
+			body, err := io.ReadAll(r.Body)
+			r.Body.Close()
+			if err == nil {
+				var envelope struct {
+					Method string `json:"method"`
+				}
+				if json.Unmarshal(body, &envelope) == nil && envelope.Method != "" {
+					rpcMethod = envelope.Method
+				}
+				r.Body = io.NopCloser(bytes.NewReader(body))
+			}
+		}
+
+		logArgs := []any{"method", r.Method, "path", r.URL.Path,
 			"bearer", r.Header.Get("Authorization") != "",
-			"apiKey", r.Header.Get("X-API-Key") != "")
+			"apiKey", r.Header.Get("X-API-Key") != ""}
+		if rpcMethod != "" {
+			logArgs = append(logArgs, "rpc.method", rpcMethod)
+		}
+		log.Debug("incoming request", logArgs...)
+
 		rw := &statusRecorder{ResponseWriter: w}
 		mux.ServeHTTP(rw, r)
 		log.Debug("response sent", "method", r.Method, "path", r.URL.Path, "status", rw.status)
