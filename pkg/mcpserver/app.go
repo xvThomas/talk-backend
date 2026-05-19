@@ -324,20 +324,73 @@ func oauthBearerMiddleware(cfg *OAuthConfig, baseURL string) func(http.Handler) 
 	})
 }
 
-// eitherAuthMiddleware dispatches to the OAuth middleware when the request
-// carries an Authorization: Bearer header, and falls back to the API Key
-// middleware otherwise.
+// eitherAuthMiddleware tries OAuth first when a Bearer token is present.
+// If OAuth fails with 401 and the request also carries a valid X-API-Key,
+// the API Key middleware is attempted as a fallback.
 func eitherAuthMiddleware(oauthMW, apiKeyMW func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	log := logger.GetLogger()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if h := r.Header.Get("Authorization"); len(h) > 7 &&
-				strings.EqualFold(h[:7], "bearer ") {
+			h := r.Header.Get("Authorization")
+			hasBearer := len(h) > 7 && strings.EqualFold(h[:7], "bearer ")
+			hasAPIKey := r.Header.Get("X-API-Key") != ""
+
+			if !hasBearer {
+				apiKeyMW(next).ServeHTTP(w, r)
+				return
+			}
+
+			// If only Bearer is present (no API Key fallback), go straight to OAuth.
+			if !hasAPIKey {
 				oauthMW(next).ServeHTTP(w, r)
 				return
 			}
+
+			// Both are present: try OAuth first with a buffered response.
+			buf := &bufferedResponseWriter{header: make(http.Header)}
+			oauthMW(next).ServeHTTP(buf, r)
+			if buf.status != http.StatusUnauthorized {
+				// OAuth succeeded (or returned a non-401 error): commit the response.
+				buf.writeTo(w)
+				return
+			}
+
+			// OAuth failed with 401: fall back to API Key.
+			log.Debug("auth fallback: OAuth failed, trying API Key")
 			apiKeyMW(next).ServeHTTP(w, r)
 		})
 	}
+}
+
+// bufferedResponseWriter captures an HTTP response in memory so that the
+// caller can decide whether to commit it to the real ResponseWriter.
+type bufferedResponseWriter struct {
+	header http.Header
+	body   bytes.Buffer
+	status int
+}
+
+func (b *bufferedResponseWriter) Header() http.Header { return b.header }
+
+func (b *bufferedResponseWriter) WriteHeader(code int) { b.status = code }
+
+func (b *bufferedResponseWriter) Write(data []byte) (int, error) {
+	if b.status == 0 {
+		b.status = http.StatusOK
+	}
+	return b.body.Write(data)
+}
+
+func (b *bufferedResponseWriter) writeTo(w http.ResponseWriter) {
+	for k, vs := range b.header {
+		for _, v := range vs {
+			w.Header().Add(k, v)
+		}
+	}
+	if b.status != 0 {
+		w.WriteHeader(b.status)
+	}
+	w.Write(b.body.Bytes())
 }
 
 // apiKeyAuthMiddleware checks that the X-API-Key header matches the expected key.
