@@ -1,10 +1,10 @@
 FROM golang:1.25-alpine AS builder
 
 WORKDIR /src
-COPY go.work ./
 COPY talk-libs/ ./talk-libs/
 COPY mcp-owm/ ./mcp-owm/
 
+ENV GOWORK=off
 RUN cd mcp-owm && go mod download
 RUN cd mcp-owm && CGO_ENABLED=0 go build -o /bin/mcp-owm ./cmd
 
