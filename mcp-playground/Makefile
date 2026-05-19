@@ -1,0 +1,54 @@
+APP_NAME     := mcp-playground
+BINARY       := bin/$(APP_NAME)
+CMD          := ./cmd
+VERSION      := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+LDFLAGS      := -ldflags "-X github.com/xvThomas/LLMClientWrapper/talk-libs/version.Version=$(VERSION)"
+DOCKER_IMAGE := $(APP_NAME)
+
+.PHONY: all build run test cover vet clean dockerize help
+
+COLOR_RESET  = \033[0m
+COLOR_BOLD   = \033[1m
+COLOR_GREEN  = \033[32m
+COLOR_YELLOW = \033[33m
+COLOR_BLUE   = \033[34m
+
+ECHO = printf '%b\n'
+
+.DEFAULT_GOAL := help
+
+all: vet test build ## Run vet, test and build
+
+build: ## Build the binary
+	@$(ECHO) "$(COLOR_YELLOW)Building $(APP_NAME)...$(COLOR_RESET)"
+	go build $(LDFLAGS) -o $(BINARY) $(CMD)
+	@$(ECHO) "$(COLOR_GREEN)✓ Build successful: $(BINARY)$(COLOR_RESET)"
+
+run: ## Run the server (TRANSPORT=http, ADDR=localhost:8080)
+	go run $(LDFLAGS) $(CMD) --transport $(or $(TRANSPORT),http) --addr $(or $(ADDR),localhost:8080)
+
+test: ## Run tests
+	@$(ECHO) "$(COLOR_YELLOW)Running tests...$(COLOR_RESET)"
+	go test ./...
+	@$(ECHO) "$(COLOR_GREEN)✓ Tests passed$(COLOR_RESET)"
+
+cover: ## Run tests with coverage
+	@$(ECHO) "$(COLOR_YELLOW)Running tests with coverage...$(COLOR_RESET)"
+	go test -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
+	@$(ECHO) "$(COLOR_GREEN)✓ Coverage done$(COLOR_RESET)"
+
+vet: ## Run go vet
+	go vet ./...
+
+dockerize: ## Build the Docker image
+	@$(ECHO) "$(COLOR_YELLOW)Building Docker image $(DOCKER_IMAGE)...$(COLOR_RESET)"
+	docker build -t $(DOCKER_IMAGE) -f Dockerfile ..
+	@$(ECHO) "$(COLOR_GREEN)✓ Docker image built: $(DOCKER_IMAGE)$(COLOR_RESET)"
+
+clean: ## Remove build artifacts
+	rm -rf bin coverage.out
+
+help: ## Show help
+	@$(ECHO) "$(COLOR_BOLD)mcp-playground$(COLOR_RESET)"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(COLOR_BLUE)%-20s$(COLOR_RESET) %s\n", $$1, $$2}'

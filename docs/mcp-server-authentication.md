@@ -369,10 +369,13 @@ OAUTH_CLIENT_SECRET=<your_keycloak_client_secret>
 
 ### 5.5. API Key + OAuth Combined
 
-Both mechanisms are enabled simultaneously. The server accepts either one:
+Both mechanisms are enabled simultaneously. The server uses a **fallback strategy**:
 
-- If the `Authorization: Bearer ...` header is present → OAuth validation
-- Otherwise → `X-API-Key` verification
+1. If only `X-API-Key` is present (no Bearer) → API Key validation
+2. If only `Authorization: Bearer ...` is present (no API Key) → OAuth validation
+3. If **both** headers are present → OAuth is tried first; if it fails with 401, the server falls back to API Key validation
+
+This fallback behavior accommodates clients (e.g. EDEN) that send both headers simultaneously — even if the Bearer token is invalid, the request can still succeed via the API Key.
 
 ```env
 X_API_KEY=mysecretkey
@@ -437,3 +440,4 @@ LOG_LEVEL=DEBUG
 | `response_keys` without `refresh_token`              | `offline_access` not requested or API does not allow it   | Auth0 → APIs → your API → Settings → enable **Allow Offline Access**       |
 | Status 403 after successful authentication           | DNS rebinding protection in the go-sdk                    | Automatically configured when `BASE_URL` is set (proxy enabled)            |
 | `Invalid authorization code` on `/token`             | The code has expired or the `redirect_uri` does not match | Verify the Allowed Callback URLs in Auth0                                  |
+| `token is malformed` + client sends both Bearer and X-API-Key | Client sends the client secret or API key as Bearer token instead of a JWT | Enable both `X_API_KEY` and OAuth: the server will fall back to API Key after OAuth fails. The client has an OAuth implementation bug (not performing the token exchange) but can still authenticate via API Key |

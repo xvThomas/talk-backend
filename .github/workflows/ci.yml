@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [talk-libs, talk, mcp-owm, mcp-playground]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Download dependencies
+        run: cd ${{ matrix.module }} && go mod download
+
+      - name: Vet
+        run: cd ${{ matrix.module }} && go vet ./...
+
+      - name: Test
+        run: cd ${{ matrix.module }} && go test -race -coverprofile=coverage.out ./...
+
+      - name: Coverage summary
+        run: cd ${{ matrix.module }} && go tool cover -func=coverage.out
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: talk-libs
+
+      - name: golangci-lint talk
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: talk
+
+      - name: golangci-lint mcp-owm
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: mcp-owm
+
+      - name: golangci-lint mcp-playground
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: mcp-playground

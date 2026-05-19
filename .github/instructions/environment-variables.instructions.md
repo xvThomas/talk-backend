@@ -1,5 +1,5 @@
 ---
-applyTo: internal/infrastructure/config/loader.go, .env.example
+applyTo: talk/internal/config/loader.go, mcp-*/internal/config/*, .env.example
 ---
 
 # Environment Variables Documentation Update

@@ -1,5 +1,5 @@
 ---
-applyTo: cmd/cli/**
+applyTo: talk/cmd/cli/**
 ---
 
 # CLI colour conventions
