@@ -7,15 +7,16 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/testutils"
 	"testing"
+
+	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/testutils"
 
 	"github.com/joho/godotenv"
 )
 
 func TestGeocodingTool_Metadata(t *testing.T) {
 	tool := NewGeocodingTool("key")
-	if tool.Name() != "geocode_city" {
+	if tool.Name() != "geocode" {
 		t.Errorf("unexpected tool name: %q", tool.Name())
 	}
 	if tool.Description() == "" {

@@ -6,15 +6,16 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/testutils"
 	"testing"
+
+	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/testutils"
 
 	"github.com/joho/godotenv"
 )
 
 func TestAirPollutionTool_Metadata(t *testing.T) {
 	tool := NewAirPollutionTool("key")
-	if tool.Name() != "get_air_pollution" {
+	if tool.Name() != "get_current_air_pollution" {
 		t.Errorf("unexpected tool name: %q", tool.Name())
 	}
 	if tool.Description() == "" {

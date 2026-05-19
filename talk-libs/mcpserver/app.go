@@ -390,7 +390,7 @@ func (b *bufferedResponseWriter) writeTo(w http.ResponseWriter) {
 	if b.status != 0 {
 		w.WriteHeader(b.status)
 	}
-	w.Write(b.body.Bytes())
+	_, _ = w.Write(b.body.Bytes())
 }
 
 // apiKeyAuthMiddleware checks that the X-API-Key header matches the expected key.

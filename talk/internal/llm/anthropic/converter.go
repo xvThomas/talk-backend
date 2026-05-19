@@ -3,6 +3,7 @@ package anthropic
 import (
 	"encoding/json"
 	"fmt"
+
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -56,7 +57,7 @@ func toSDKTools(tools []domain.Tool) ([]anthropic.ToolUnionParam, error) {
 		if err != nil {
 			return nil, fmt.Errorf("Unable to get InputSchema for tool %s: %w", t.Name(), err)
 		}
-		props, _ := params["properties"]
+		props := params["properties"]
 		var required []string
 		if r, ok := params["required"]; ok {
 			if sl, ok := r.([]string); ok {

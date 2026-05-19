@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/domain"
 )
 
@@ -96,13 +97,7 @@ func (t *GeocodingTool) Call(ctx context.Context, input GeocodingToolInput) (Geo
 		Locations: make([]GeocodingLocation, 0, len(results)),
 	}
 	for _, r := range results {
-		out.Locations = append(out.Locations, GeocodingLocation{
-			Name:    r.Name,
-			Lat:     r.Lat,
-			Lon:     r.Lon,
-			Country: r.Country,
-			State:   r.State,
-		})
+		out.Locations = append(out.Locations, GeocodingLocation(r))
 	}
 
 	return out, nil

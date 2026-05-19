@@ -86,14 +86,6 @@ func intValue(i int64) OTLPValue {
 	return OTLPValue{IntValue: &i}
 }
 
-func doubleValue(f float64) OTLPValue {
-	return OTLPValue{DoubleValue: &f}
-}
-
-func boolValue(b bool) OTLPValue {
-	return OTLPValue{BoolValue: &b}
-}
-
 // Mapping functions from domain events to OpenTelemetry format
 
 // apiCallToOTLP converts a domain.APICallEvent to OpenTelemetry format

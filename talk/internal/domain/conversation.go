@@ -55,9 +55,7 @@ func (m *ConversationManager) reportAPICall(event APICallEvent) {
 		go func(r UsageReporter) {
 			defer wg.Done()
 			defer func() {
-				// Don't let reporter panics crash the application
-				if recover() != nil {
-				}
+				recover() //nolint:errcheck // Don't let reporter panics crash the application
 			}()
 			r.OnAPICall(event)
 		}(reporter)
@@ -77,9 +75,7 @@ func (m *ConversationManager) reportConversationTurn(event TurnEvent) {
 		go func(r UsageReporter) {
 			defer wg.Done()
 			defer func() {
-				// Don't let reporter panics crash the application
-				if recover() != nil {
-				}
+				recover() //nolint:errcheck // Don't let reporter panics crash the application
 			}()
 			r.OnConversationTurn(event)
 		}(reporter)

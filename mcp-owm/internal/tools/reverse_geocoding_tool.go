@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/domain"
 )
 
@@ -85,13 +86,7 @@ func (t *ReverseGeocodingTool) Call(ctx context.Context, input ReverseGeocodingT
 		Locations: make([]GeocodingLocation, 0, len(results)),
 	}
 	for _, r := range results {
-		out.Locations = append(out.Locations, GeocodingLocation{
-			Name:    r.Name,
-			Lat:     r.Lat,
-			Lon:     r.Lon,
-			Country: r.Country,
-			State:   r.State,
-		})
+		out.Locations = append(out.Locations, GeocodingLocation(r))
 	}
 
 	return out, nil

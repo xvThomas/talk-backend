@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/version"
+	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
 )
 
 // LangfuseUsageReporter implements domain.UsageReporter by sending traces to Langfuse
@@ -110,10 +110,7 @@ func (l *LangfuseUsageReporter) worker() {
 	defer l.wg.Done()
 
 	for event := range l.eventBuffer {
-		if err := l.processEvent(event); err != nil {
-			// In production, we might want to log this error
-			// For now, we silently continue to prevent breaking the application
-		}
+		_ = l.processEvent(event)
 	}
 }
 
