@@ -219,7 +219,7 @@ func (t *Forecast5Days3HoursWeatherTool) fetchForecast(ctx context.Context, lat,
 	if err != nil {
 		return nil, fmt.Errorf("forecast API request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("forecast API returned status %d", resp.StatusCode)

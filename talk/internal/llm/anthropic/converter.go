@@ -55,7 +55,7 @@ func toSDKTools(tools []domain.Tool) ([]anthropic.ToolUnionParam, error) {
 		// params := t.Parameters()
 		params, err := t.InputSchema()
 		if err != nil {
-			return nil, fmt.Errorf("Unable to get InputSchema for tool %s: %w", t.Name(), err)
+			return nil, fmt.Errorf("unable to get InputSchema for tool %s: %w", t.Name(), err)
 		}
 		props := params["properties"]
 		var required []string

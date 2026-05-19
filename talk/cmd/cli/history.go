@@ -67,7 +67,7 @@ func (h *History) load() error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := strings.TrimRight(sc.Text(), "\r")
@@ -83,7 +83,7 @@ func (h *History) save() error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	w := bufio.NewWriter(f)
 	for _, e := range h.entries {
 		_, _ = fmt.Fprintln(w, e)

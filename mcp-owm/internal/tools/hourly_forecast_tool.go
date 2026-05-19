@@ -189,7 +189,7 @@ func (t *HourlyForecastTool) fetchHourlyForecast(ctx context.Context, lat, lon f
 	if err != nil {
 		return nil, fmt.Errorf("hourly forecast API request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("hourly forecast API returned status %d", resp.StatusCode)

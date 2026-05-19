@@ -186,7 +186,7 @@ func (l *LangfuseUsageReporter) sendTrace(trace *OTLPTrace) error {
 	if err != nil {
 		return fmt.Errorf("sending request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("HTTP %d from Langfuse", resp.StatusCode)

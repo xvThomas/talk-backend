@@ -175,7 +175,7 @@ func (c *jwksCache) refresh(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("fetching JWKS: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("JWKS endpoint returned %d", resp.StatusCode)

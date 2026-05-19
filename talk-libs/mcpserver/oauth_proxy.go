@@ -130,7 +130,7 @@ func registerASProxy(mux *http.ServeMux, baseURL string, cfg *OAuthConfig) {
 			http.Error(w, "upstream unavailable", http.StatusBadGateway)
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		// Read body to log in debug mode if upstream returned an error.
 		body, _ := io.ReadAll(resp.Body)

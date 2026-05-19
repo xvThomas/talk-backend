@@ -236,7 +236,7 @@ func (t *CurrentWeatherTool) fetchWeather(ctx context.Context, lat, lon float64)
 	if err != nil {
 		return nil, fmt.Errorf("weather API request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("weather API returned status %d", resp.StatusCode)

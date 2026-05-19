@@ -221,7 +221,7 @@ func (a *App) runHTTP(addr string) {
 		var rpcMethod string
 		if r.Body != nil && r.Method == http.MethodPost {
 			body, err := io.ReadAll(r.Body)
-			r.Body.Close()
+			_ = r.Body.Close()
 			if err == nil {
 				var envelope struct {
 					Method string `json:"method"`

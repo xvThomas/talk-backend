@@ -67,7 +67,7 @@ func toSDKTools(tools []domain.Tool) ([]openai.ChatCompletionToolParam, error) {
 	for _, t := range tools {
 		inputSchema, err := t.InputSchema()
 		if err != nil {
-			return nil, fmt.Errorf("Unable to get InputSchema for tool %s: %w", t.Name(), err)
+			return nil, fmt.Errorf("unable to get InputSchema for tool %s: %w", t.Name(), err)
 		}
 		// Type field is constant.Function, zero value marshals as "function" automatically.
 		sdkTools = append(sdkTools, openai.ChatCompletionToolParam{

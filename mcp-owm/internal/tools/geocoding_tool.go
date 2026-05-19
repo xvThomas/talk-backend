@@ -82,7 +82,7 @@ func (t *GeocodingTool) Call(ctx context.Context, input GeocodingToolInput) (Geo
 	if err != nil {
 		return GeocodingToolOutput{}, fmt.Errorf("geocoding API request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return GeocodingToolOutput{}, fmt.Errorf("geocoding API returned status %d", resp.StatusCode)

@@ -392,7 +392,7 @@ func (s *LangfuseStore) apiGet(ctx context.Context, endpoint string) ([]byte, er
 	if err != nil {
 		return nil, fmt.Errorf("GET %s: %w", endpoint, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		errBody, _ := io.ReadAll(resp.Body)

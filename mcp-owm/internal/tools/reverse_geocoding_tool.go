@@ -71,7 +71,7 @@ func (t *ReverseGeocodingTool) Call(ctx context.Context, input ReverseGeocodingT
 	if err != nil {
 		return ReverseGeocodingToolOutput{}, fmt.Errorf("reverse geocoding API request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return ReverseGeocodingToolOutput{}, fmt.Errorf("reverse geocoding API returned status %d", resp.StatusCode)
