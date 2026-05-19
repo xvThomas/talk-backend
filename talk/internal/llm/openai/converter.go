@@ -3,6 +3,7 @@ package openai
 import (
 	"encoding/json"
 	"fmt"
+
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
 
 	"github.com/openai/openai-go"

@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/domain"
 	"time"
+
+	"github.com/xvThomas/LLMClientWrapper/talk-libs/domain"
 )
 
 // DailyForecastToolInput is the typed input for DailyForecastTool.
