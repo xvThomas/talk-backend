@@ -1,13 +1,41 @@
-# talks
+# LLMClientWrapper
 
-A Go CLI that routes questions to Anthropic or OpenAI-compatible models (GPT, Mistral, Devstral …) through a single unified interface. Supports tool calls (OpenWeatherMap example), Anthropic prompt caching, and in-memory conversation history.
+A Go monorepo providing a CLI that routes questions to Anthropic or OpenAI-compatible models (GPT, Mistral, Devstral…) through a unified interface, plus standalone MCP (Model Context Protocol) tool servers.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                          go.work (root)                             │
+├────────────┬────────────┬─────────────────┬─────────────────────────┤
+│ talk-libs  │    talk    │    mcp-owm      │    mcp-playground       │
+│ (shared)   │   (CLI)    │ (weather MCP)   │   (empty template)      │
+├────────────┼────────────┼─────────────────┼─────────────────────────┤
+│ domain/    │ cmd/cli/   │ cmd/            │ cmd/                    │
+│ logger/    │ internal/  │ internal/       │ internal/               │
+│ mcpserver/ │            │   config/       │   config/               │
+│ version/   │            │   tools/        │                         │
+└────────────┴────────────┴─────────────────┴─────────────────────────┘
+```
+
+The project uses **Go workspaces** (`go.work`) with four independent modules:
+
+| Module | Path | Description |
+|--------|------|-------------|
+| `talk-libs` | `./talk-libs` | Shared library: domain types (`TypedTool`), logger, MCP server framework, version |
+| `talk` | `./talk` | Interactive CLI — multi-turn conversations with LLM providers |
+| `mcp-owm` | `./mcp-owm` | MCP server exposing OpenWeatherMap tools |
+| `mcp-playground` | `./mcp-playground` | Empty MCP server template for experimentation |
 
 ---
 
 ## Prerequisites
 
-- Go 1.23+
+- Go 1.25+
 - `make`
+- `golangci-lint` v2.12+ (`go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`)
 - API keys for the providers you want to use (see [Environment variables](#environment-variables))
 
 ---
@@ -15,107 +43,131 @@ A Go CLI that routes questions to Anthropic or OpenAI-compatible models (GPT, Mi
 ## Quickstart
 
 ```bash
-# 1. Clone and enter the project
-git clone <repo-url>
-cd LlmClientWrapper
+# 1. Clone
+git clone https://github.com/xvThomas/LLMClientWrapper.git
+cd LLMClientWrapper
 
 # 2. Copy and fill in your API keys
 cp .env.example .env
 $EDITOR .env
 
-# 3. Build
+# 3. Build all binaries
 make build
 
-# 4. Start an interactive session
-make run MODEL=sonnet-4.6
+# 4. Start an interactive CLI session
+cd talk && make run MODEL=sonnet-4.6
+
+# 5. Start the OpenWeather MCP server (hot-reload)
+cd mcp-owm && make dev
 ```
-
-Or without `make`:
-
-```bash
-go run ./cmd/cli --model sonnet-4.6
-```
-
-Use a custom system prompt file:
-
-```bash
-go run ./cmd/cli --model mistral-small --system-file ./my_prompt.md
-```
-
-Type `exit` or `quit` (or press `Ctrl+C`) to end the session.
 
 ---
 
 ## Available models
 
-| Alias           | Provider  | Notes                 |
-| --------------- | --------- | --------------------- |
-| `haiku-4.5`     | Anthropic | Fast and cheap        |
-| `sonnet-4.6`    | Anthropic | Balanced              |
-| `gpt-5.4`       | OpenAI    |                       |
-| `mistral-small` | Mistral   | OpenAI-compatible API |
+| Alias | Provider | Notes |
+|-------|----------|-------|
+| `haiku-4.5` | Anthropic | Fast and cheap |
+| `sonnet-4.6` | Anthropic | Balanced |
+| `gpt-5.4` | OpenAI | |
+| `mistral-small` | Mistral | OpenAI-compatible API |
 
 ---
 
 ## Environment variables
 
-Copy `.env.example` to `.env` and fill in the relevant keys:
+Copy `.env.example` to `.env` at the root (or in each module directory) and fill in the relevant keys:
 
-| Variable                 | Required for              | Default | Description                                                  |
-| ------------------------ | ------------------------- | ------- | ------------------------------------------------------------ |
-| `ANTHROPIC_API_KEY`      | `haiku-4.5`, `sonnet-4.6` | -       | API key for Anthropic models                                 |
-| `OPENAI_API_KEY`         | `gpt-5.4`                 | -       | API key for OpenAI models                                    |
-| `MISTRAL_API_KEY`        | `mistral-small`           | -       | API key for Mistral models                                   |
-| `OPENWEATHERMAP_API_KEY` | weather tool calls        | -       | API key for OpenWeatherMap weather tool                      |
-| `TOOLS_MAX_CONCURRENT`   | optional                  | `4`     | Maximum concurrent tool executions (set to 1 for sequential) |
+| Variable | Required for | Description |
+|----------|-------------|-------------|
+| `ANTHROPIC_API_KEY` | `haiku-4.5`, `sonnet-4.6` | Anthropic API key |
+| `OPENAI_API_KEY` | `gpt-5.4` | OpenAI API key |
+| `MISTRAL_API_KEY` | `mistral-small` | Mistral API key |
+| `OPENWEATHERMAP_API_KEY` | mcp-owm | OpenWeatherMap API key |
+| `TOOLS_MAX_CONCURRENT` | optional | Max concurrent tool executions (default: 4) |
+| `X_API_KEY` | optional | Shared secret for MCP HTTP authentication |
+| `OAUTH_AUTHORIZATION_SERVER` | optional | OAuth2 AS URL for MCP token validation |
+
+---
+
+## Make targets (root)
+
+| Target | Description |
+|--------|-------------|
+| `make build` | Build all binaries (`talk`, `mcp-owm`, `mcp-playground`) |
+| `make test` | Run tests for all modules |
+| `make cover` | Run tests with coverage for all modules |
+| `make vet` | Run `go vet` for all modules |
+| `make lint` | Run `golangci-lint` for all modules |
+| `make clean` | Remove build artifacts |
+
+Each module also has its own Makefile with additional targets:
+
+| Target (per module) | Description |
+|---------------------|-------------|
+| `make build` | Build that module's binary |
+| `make run` | Run the binary (CLI or MCP server) |
+| `make dev` | Hot-reload with `air` (MCP servers) |
+| `make test` | Run module tests |
+| `make dockerize` | Build Docker image (MCP servers) |
 
 ---
 
 ## System prompt
 
-By default the CLI loads `system_prompt.md` from the same directory as the executable. Edit that file to customise the assistant's persona without recompiling.
-
-Override at runtime with `--system-file`:
+The CLI loads `system_prompt.md` from the `talk/` directory by default. Override at runtime:
 
 ```bash
---system-file /path/to/prompt.md
+go run ./cmd/cli --model sonnet-4.6 --system-file /path/to/prompt.md
 ```
 
 ---
 
-## Make targets
+## Versioning
 
-| Target               | Description                                                     |
-| -------------------- | --------------------------------------------------------------- |
-| `make build`         | Compile to `bin/talk-cli`                                       |
-| `make run`           | Interactive session — override with `MODEL=` and `SYSTEM_FILE=` |
-| `make test`          | Run all unit tests                                              |
-| `make cover`         | Generate `coverage.html` (opens-ready HTML report)              |
-| `make cover-summary` | Print per-package coverage percentages                          |
-| `make vet`           | Run `go vet`                                                    |
-| `make clean`         | Remove `bin/`, `coverage.out`, `coverage.html`                  |
+Versions are resolved automatically:
+
+| Context | Mechanism | Example |
+|---------|-----------|---------|
+| `make build` | `git describe --tags` via ldflags | `v1.2.0` or `v1.2.0-3-gdbe6a3e` |
+| `make dev` / local run | `runtime/debug.ReadBuildInfo()` | `dbe6a3ee` (commit hash) |
+| No VCS info | Fallback | `dev` |
 
 ---
 
 ## Project structure
 
-```txt
+```
 .
-├── cmd/
-│   └── cli/                        # CLI entry point (interactive REPL)
-├── internal/
-│   ├── domain/                     # Interfaces & types (Model, Message, Tool …)
-│   └── infrastructure/
-│       ├── llm/                    # LLM provider implementations
-│       │   ├── anthropic/
-│       │   ├── openai/
-│       │   └── router/             # Builds LlmClient from config + model alias
-│       ├── config/                 # .env loader
-│       ├── memory/                 # In-memory & Langfuse conversation stores
-│       ├── prompt/                 # File & static prompt providers
-│       ├── tools/                  # Tool aggregator + OpenWeatherMap tool
-│       └── usage/                  # Console & Langfuse usage reporters
-├── system_prompt.md                # Default system prompt
-├── .env.example
-└── Makefile
+├── go.work                         # Go workspace (links all modules)
+├── Makefile                        # Root orchestrator
+├── .github/
+│   └── workflows/ci.yml           # CI: test + lint per module
+├── talk-libs/                      # Shared library module
+│   ├── domain/                    #   TypedTool interface, Adapt()
+│   ├── logger/                    #   Structured colored logging
+│   ├── mcpserver/                 #   MCP server framework (App, OAuth, transports)
+│   └── version/                   #   Build-time version injection
+├── talk/                           # CLI module
+│   ├── cmd/cli/                   #   Entry point (REPL)
+│   ├── internal/
+│   │   ├── domain/                #   Conversation, Message, Model, Store…
+│   │   ├── config/                #   .env loader
+│   │   ├── llm/                   #   Anthropic, OpenAI, Router
+│   │   ├── memory/                #   InMemory & Langfuse stores
+│   │   ├── prompt/                #   File & static prompt providers
+│   │   └── usage/                 #   Console, Langfuse, OTLP reporters
+│   └── system_prompt.md
+├── mcp-owm/                        # OpenWeatherMap MCP server module
+│   ├── cmd/                       #   Entry point
+│   ├── internal/
+│   │   ├── config/                #   Server env loader
+│   │   ├── tools/                 #   Weather, geocoding, forecast tools
+│   │   └── testutils/
+│   ├── .air.toml                  #   Hot-reload config
+│   └── Dockerfile
+└── mcp-playground/                  # Empty MCP server template
+    ├── cmd/
+    ├── internal/config/
+    └── Dockerfile
 ```
