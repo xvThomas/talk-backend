@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        module: [talk-libs, talk, mcp-owm, mcp-playground]
+        module: [talk-libs, talk, mcp-owm, mcp-playground, mcp-ign-nav]
     steps:
       - uses: actions/checkout@v6
 
@@ -72,3 +72,9 @@ jobs:
         with:
           version: v2.12.2
           working-directory: mcp-playground
+
+      - name: golangci-lint mcp-ign-nav
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+          working-directory: mcp-ign-nav

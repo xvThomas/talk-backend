@@ -135,7 +135,7 @@ func clearEnv(t *testing.T) {
 		"OAUTH_SCOPES", "OAUTH_CLIENT_SECRET",
 	} {
 		t.Setenv(key, "")
-		os.Unsetenv(key)
+		_ = os.Unsetenv(key)
 	}
 }
 

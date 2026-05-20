@@ -208,6 +208,25 @@ APP_NAME     := mcp-<server-name>
 
 Copy from `mcp-playground/Dockerfile` and adjust the module name.
 
+### 8. Register in CI
+
+Add the new server to `.github/workflows/ci.yml`:
+
+1. **Test matrix** — append `mcp-<server-name>` to the `matrix.module` list:
+   ```yaml
+   matrix:
+     module: [talk-libs, talk, mcp-owm, mcp-playground, mcp-<server-name>]
+   ```
+
+2. **Lint job** — add a new `golangci-lint` step:
+   ```yaml
+   - name: golangci-lint mcp-<server-name>
+     uses: golangci/golangci-lint-action@v9
+     with:
+       version: v2.12.2
+       working-directory: mcp-<server-name>
+   ```
+
 ## Key Rules
 
 - **No cross-dependencies between MCP servers** — each server is fully independent.
@@ -234,7 +253,7 @@ Copy from `mcp-playground/Dockerfile` and adjust the module name.
   - A **Prompts** section listing each prompt (if the server defines any) with its name, description, and arguments.
   - A **Makefile commands** section listing the available `make` targets (build, run, test, lint, etc.).
 
-### 8. Create prompts (optional)
+### 9. Create prompts (optional)
 
 Prompts give LLM clients pre-defined instructions on how to use your tools. Create `internal/prompts/prompts.go`:
 
@@ -270,7 +289,7 @@ opts := []mcpserver.Option{
 - Use `{{argName}}` placeholders in message text — they are replaced with argument values at runtime.
 - A prompt can have multiple messages (e.g. user + assistant for few-shot examples).
 
-### 9. Hot reload with Air
+### 10. Hot reload with Air
 
 For rapid development, use [Air](https://github.com/air-verse/air) for hot reload. Create `.air.toml` at the server root:
 
