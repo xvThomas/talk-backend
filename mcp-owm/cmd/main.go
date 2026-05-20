@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/config"
+	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/prompts"
 	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/tools"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/logger"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
@@ -31,11 +32,19 @@ func main() {
 		mcpserver.WithTools(mcpserver.RegisterTool(reverseGeocodingTool)),
 		mcpserver.WithTools(mcpserver.RegisterTool(airPollutionTool)),
 		mcpserver.WithTools(mcpserver.RegisterTool(airPollutionForecastTool)),
+		mcpserver.WithPrompts(
+			mcpserver.RegisterPrompt(prompts.CurrentWeather),
+			mcpserver.RegisterPrompt(prompts.CurrentAir),
+			mcpserver.RegisterPrompt(prompts.ForecastAir),
+		),
 	}
 
 	if env.FreePlan {
 		forecastTool := tools.NewForecast5Days3HoursWeatherTool(env.OpenWeatherMapAPIKey)
-		opts = append(opts, mcpserver.WithTools(mcpserver.RegisterTool(forecastTool)))
+		opts = append(opts,
+			mcpserver.WithTools(mcpserver.RegisterTool(forecastTool)),
+			mcpserver.WithPrompts(mcpserver.RegisterPrompt(prompts.ForecastWeather)),
+		)
 	} else {
 		hourlyForecastTool := tools.NewHourlyForecastTool(env.OpenWeatherMapAPIKey)
 		dailyForecastTool := tools.NewDailyForecastTool(env.OpenWeatherMapAPIKey)

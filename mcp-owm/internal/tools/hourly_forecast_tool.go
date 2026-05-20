@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/domain"
+	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
 const defaultProBaseURL = "https://pro.openweathermap.org/data/2.5"
@@ -26,7 +26,7 @@ type HourlyForecastToolOutput struct {
 	Forecasts []ForecastEntry `json:"forecasts" description:"Hourly forecast entries (up to 96 timestamps for 4 days)"`
 }
 
-// HourlyForecastTool implements domain.TypedTool for fetching 4-day hourly forecast via OpenWeatherMap Pro.
+// HourlyForecastTool implements mcpserver.MCPTool for fetching 4-day hourly forecast via OpenWeatherMap Pro.
 type HourlyForecastTool struct {
 	apiKey  string
 	baseURL string
@@ -34,11 +34,11 @@ type HourlyForecastTool struct {
 }
 
 // NewHourlyForecastTool creates a HourlyForecastTool with the given API key.
-func NewHourlyForecastTool(apiKey string) domain.TypedTool[HourlyForecastToolInput, HourlyForecastToolOutput] {
+func NewHourlyForecastTool(apiKey string) mcpserver.MCPTool[HourlyForecastToolInput, HourlyForecastToolOutput] {
 	return &HourlyForecastTool{apiKey: apiKey, baseURL: defaultProBaseURL, http: &http.Client{}}
 }
 
-var _ domain.TypedTool[HourlyForecastToolInput, HourlyForecastToolOutput] = (*HourlyForecastTool)(nil)
+var _ mcpserver.MCPTool[HourlyForecastToolInput, HourlyForecastToolOutput] = (*HourlyForecastTool)(nil)
 
 // newHourlyForecastToolWithBaseURL creates a HourlyForecastTool with a custom base URL (for testing).
 func newHourlyForecastToolWithBaseURL(apiKey, baseURL string, client *http.Client) *HourlyForecastTool {

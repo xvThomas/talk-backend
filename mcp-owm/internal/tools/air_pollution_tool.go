@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/domain"
+	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
 // AirPollutionToolInput is the typed input for AirPollutionTool.
@@ -35,7 +35,7 @@ type AirPollutionToolOutput struct {
 	Components AirQualityComponents `json:"components" description:"Concentrations of polluting gases in μg/m3"`
 }
 
-// AirPollutionTool implements domain.TypedTool for fetching current air pollution data via OpenWeatherMap.
+// AirPollutionTool implements mcpserver.MCPTool for fetching current air pollution data via OpenWeatherMap.
 type AirPollutionTool struct {
 	apiKey  string
 	baseURL string
@@ -43,11 +43,11 @@ type AirPollutionTool struct {
 }
 
 // NewAirPollutionTool creates an AirPollutionTool with the given API key.
-func NewAirPollutionTool(apiKey string) domain.TypedTool[AirPollutionToolInput, AirPollutionToolOutput] {
+func NewAirPollutionTool(apiKey string) mcpserver.MCPTool[AirPollutionToolInput, AirPollutionToolOutput] {
 	return &AirPollutionTool{apiKey: apiKey, baseURL: defaultBaseURL, http: &http.Client{}}
 }
 
-var _ domain.TypedTool[AirPollutionToolInput, AirPollutionToolOutput] = (*AirPollutionTool)(nil)
+var _ mcpserver.MCPTool[AirPollutionToolInput, AirPollutionToolOutput] = (*AirPollutionTool)(nil)
 
 // newAirPollutionToolWithBaseURL creates an AirPollutionTool with a custom base URL (for testing).
 func newAirPollutionToolWithBaseURL(apiKey, baseURL string, client *http.Client) *AirPollutionTool {

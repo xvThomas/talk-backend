@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/domain"
+	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
 const defaultGeoBaseURL = "http://api.openweathermap.org/geo/1.0"
@@ -32,7 +32,7 @@ type GeocodingToolOutput struct {
 	Locations []GeocodingLocation `json:"locations" description:"List of matching locations with coordinates"`
 }
 
-// GeocodingTool implements domain.TypedTool for direct geocoding via OpenWeatherMap.
+// GeocodingTool implements mcpserver.MCPTool for direct geocoding via OpenWeatherMap.
 type GeocodingTool struct {
 	apiKey  string
 	baseURL string
@@ -40,11 +40,11 @@ type GeocodingTool struct {
 }
 
 // NewGeocodingTool creates a GeocodingTool with the given API key.
-func NewGeocodingTool(apiKey string) domain.TypedTool[GeocodingToolInput, GeocodingToolOutput] {
+func NewGeocodingTool(apiKey string) mcpserver.MCPTool[GeocodingToolInput, GeocodingToolOutput] {
 	return &GeocodingTool{apiKey: apiKey, baseURL: defaultGeoBaseURL, http: &http.Client{}}
 }
 
-var _ domain.TypedTool[GeocodingToolInput, GeocodingToolOutput] = (*GeocodingTool)(nil)
+var _ mcpserver.MCPTool[GeocodingToolInput, GeocodingToolOutput] = (*GeocodingTool)(nil)
 
 // newGeocodingToolWithBaseURL creates a GeocodingTool with a custom base URL (for testing).
 func newGeocodingToolWithBaseURL(apiKey, baseURL string, client *http.Client) *GeocodingTool {

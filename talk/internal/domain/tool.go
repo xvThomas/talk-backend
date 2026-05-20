@@ -9,8 +9,8 @@ import (
 	"github.com/swaggest/jsonschema-go"
 )
 
-// TypedTool is the generic interface for tool implementors.
-// TInput is the typed input struct; TOutput is the typed output struct.
+// TypedTool is the generic interface for typed tool implementors used by
+// the conversation engine (via Adapt).
 type TypedTool[TInput any, TOutput any] interface {
 	Name() string
 	Description() string
@@ -22,33 +22,10 @@ type TypedTool[TInput any, TOutput any] interface {
 type Tool interface {
 	Name() string
 	Description() string
-	// Parameters returns a JSON-Schema-compatible description of the input.
-	// Parameters() map[string]any
 	InputSchema() (map[string]any, error)  // JSON Schema for the input parameters
 	OutputSchema() (map[string]any, error) // JSON Schema for the output
 	// Execute runs the tool with the given input and returns a map result.
 	Execute(ctx context.Context, input map[string]any) (map[string]any, error)
-}
-
-// ToolPrompt describes a single prompt exposed by a tool.
-type ToolPrompt struct {
-	Name        string
-	Description string
-	// Messages is an ordered list of (role, text) pairs injected when the prompt is invoked.
-	Messages []ToolPromptMessage
-}
-
-// ToolPromptMessage is a single message within a ToolPrompt.
-type ToolPromptMessage struct {
-	Role string // "user" or "assistant"
-	Text string
-}
-
-// MCPPromptProvider is an optional interface that a TypedTool may implement
-// to expose MCP prompts. The router collects them from every tool that satisfies
-// this interface; tools that don't need prompts simply omit it.
-type MCPPromptProvider interface {
-	Prompts() []ToolPrompt
 }
 
 // toolAdapter bridges a TypedTool into the type-erased Tool interface.
@@ -59,7 +36,6 @@ type toolAdapter[TInput any, TOutput any] struct {
 var _ Tool = (*toolAdapter[any, any])(nil)
 
 // Adapt wraps a TypedTool[TInput, TOutput] into a Tool.
-// schema is a function returning the JSON Schema for TInput (e.g. t.Parameters).
 func Adapt[TInput any, TOutput any](
 	tool TypedTool[TInput, TOutput],
 ) Tool {
@@ -79,7 +55,6 @@ func (a *toolAdapter[TInput, TOutput]) InputSchema() (map[string]any, error) {
 		return nil, fmt.Errorf("failed to reflect input schema: %w", err)
 	}
 
-	// Convert schema to map[string]any
 	schemaBytes, err := json.Marshal(schema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal input schema: %w", err)
@@ -97,12 +72,9 @@ func (a *toolAdapter[TInput, TOutput]) OutputSchema() (map[string]any, error) {
 	var toolOutput TOutput
 	reflector := jsonschema.Reflector{}
 
-	// use reflect.TypeOf for getting the type of output
 	outputType := reflect.TypeOf(toolOutput)
-	// If it is a slice, get the element type and inline its definition
 	if outputType.Kind() == reflect.Slice {
 		elemType := outputType.Elem()
-		// Create a new instance of the element type
 		elemInstance := reflect.New(elemType).Elem().Interface()
 		reflector.InlineDefinition(elemInstance)
 	} else {
@@ -151,13 +123,4 @@ func (a *toolAdapter[TInput, TOutput]) Execute(ctx context.Context, input map[st
 		return nil, fmt.Errorf("unmarshalling tool output: %w", err)
 	}
 	return result, nil
-}
-
-// Prompts implements MCPPromptProvider on toolAdapter by delegating to the
-// underlying TypedTool if it also satisfies MCPPromptProvider; otherwise returns nil.
-func (a *toolAdapter[TInput, TOutput]) Prompts() []ToolPrompt {
-	if pp, ok := any(a.tool).(MCPPromptProvider); ok {
-		return pp.Prompts()
-	}
-	return nil
 }

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/domain"
+	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
 // ReverseGeocodingToolInput is the typed input for ReverseGeocodingTool.
@@ -21,7 +21,7 @@ type ReverseGeocodingToolOutput struct {
 	Locations []GeocodingLocation `json:"locations" description:"List of location names for the given coordinates"`
 }
 
-// ReverseGeocodingTool implements domain.TypedTool for reverse geocoding via OpenWeatherMap.
+// ReverseGeocodingTool implements mcpserver.MCPTool for reverse geocoding via OpenWeatherMap.
 type ReverseGeocodingTool struct {
 	apiKey  string
 	baseURL string
@@ -29,11 +29,11 @@ type ReverseGeocodingTool struct {
 }
 
 // NewReverseGeocodingTool creates a ReverseGeocodingTool with the given API key.
-func NewReverseGeocodingTool(apiKey string) domain.TypedTool[ReverseGeocodingToolInput, ReverseGeocodingToolOutput] {
+func NewReverseGeocodingTool(apiKey string) mcpserver.MCPTool[ReverseGeocodingToolInput, ReverseGeocodingToolOutput] {
 	return &ReverseGeocodingTool{apiKey: apiKey, baseURL: defaultGeoBaseURL, http: &http.Client{}}
 }
 
-var _ domain.TypedTool[ReverseGeocodingToolInput, ReverseGeocodingToolOutput] = (*ReverseGeocodingTool)(nil)
+var _ mcpserver.MCPTool[ReverseGeocodingToolInput, ReverseGeocodingToolOutput] = (*ReverseGeocodingTool)(nil)
 
 // newReverseGeocodingToolWithBaseURL creates a ReverseGeocodingTool with a custom base URL (for testing).
 func newReverseGeocodingToolWithBaseURL(apiKey, baseURL string, client *http.Client) *ReverseGeocodingTool {

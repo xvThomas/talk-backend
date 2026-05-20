@@ -6,8 +6,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/testutils"
 	"testing"
+
+	"github.com/xvThomas/LLMClientWrapper/talk-libs/testutils"
 
 	"github.com/joho/godotenv"
 )

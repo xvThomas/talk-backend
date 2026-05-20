@@ -8,8 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/testutils"
 	"testing"
+
+	"github.com/xvThomas/LLMClientWrapper/talk-libs/testutils"
 
 	"github.com/joho/godotenv"
 )

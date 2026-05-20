@@ -16,19 +16,18 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/domain"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/logger"
 )
 
 // ToolRegistrar registers a tool on an mcp.Server.
-// Use RegisterTool to create one from a domain.TypedTool.
+// Use RegisterTool to create one from an MCPTool.
 type ToolRegistrar struct {
 	Name     string
 	Register func(s *mcp.Server)
 }
 
-// RegisterTool returns a ToolRegistrar that adds the given TypedTool to an mcp.Server.
-func RegisterTool[TInput, TOutput any](tool domain.TypedTool[TInput, TOutput]) ToolRegistrar {
+// RegisterTool returns a ToolRegistrar that adds the given MCPTool to an mcp.Server.
+func RegisterTool[TInput, TOutput any](tool MCPTool[TInput, TOutput]) ToolRegistrar {
 	return ToolRegistrar{
 		Name: tool.Name(),
 		Register: func(s *mcp.Server) {
@@ -127,6 +126,7 @@ type App struct {
 	name    string
 	version string
 	tools   []ToolRegistrar
+	prompts []PromptRegistrar
 	apiKey  *string      // optional: X-API-Key header authentication
 	oauth   *OAuthConfig // optional: OAuth Bearer token authentication
 }
@@ -164,6 +164,14 @@ func (a *App) Run() {
 	}
 	log.Info("Available tools", "count", len(toolNames), "tools", toolNames)
 
+	promptNames := make([]string, len(a.prompts))
+	for i, p := range a.prompts {
+		promptNames[i] = p.Name
+	}
+	if len(promptNames) > 0 {
+		log.Info("Available prompts", "count", len(promptNames), "prompts", promptNames)
+	}
+
 	switch *transport {
 	case "stdio":
 		a.runStdio()
@@ -180,6 +188,9 @@ func (a *App) newServer() *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: a.name, Version: a.version}, nil)
 	for _, t := range a.tools {
 		t.Register(s)
+	}
+	for _, p := range a.prompts {
+		p.Register(s)
 	}
 	return s
 }

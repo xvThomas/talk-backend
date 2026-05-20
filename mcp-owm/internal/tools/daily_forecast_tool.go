@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/domain"
+	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
 // DailyForecastToolInput is the typed input for DailyForecastTool.
@@ -59,7 +59,7 @@ type DailyForecastToolOutput struct {
 	Forecasts []DailyForecastEntry `json:"forecasts" description:"Daily forecast entries (up to 16 days)"`
 }
 
-// DailyForecastTool implements domain.TypedTool for fetching the 16-day daily forecast via OpenWeatherMap.
+// DailyForecastTool implements mcpserver.MCPTool for fetching the 16-day daily forecast via OpenWeatherMap.
 type DailyForecastTool struct {
 	apiKey  string
 	baseURL string
@@ -67,11 +67,11 @@ type DailyForecastTool struct {
 }
 
 // NewDailyForecastTool creates a DailyForecastTool with the given API key.
-func NewDailyForecastTool(apiKey string) domain.TypedTool[DailyForecastToolInput, DailyForecastToolOutput] {
+func NewDailyForecastTool(apiKey string) mcpserver.MCPTool[DailyForecastToolInput, DailyForecastToolOutput] {
 	return &DailyForecastTool{apiKey: apiKey, baseURL: defaultBaseURL, http: &http.Client{}}
 }
 
-var _ domain.TypedTool[DailyForecastToolInput, DailyForecastToolOutput] = (*DailyForecastTool)(nil)
+var _ mcpserver.MCPTool[DailyForecastToolInput, DailyForecastToolOutput] = (*DailyForecastTool)(nil)
 
 // newDailyForecastToolWithBaseURL creates a DailyForecastTool with a custom base URL (for testing).
 func newDailyForecastToolWithBaseURL(apiKey, baseURL string, client *http.Client) *DailyForecastTool {

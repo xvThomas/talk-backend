@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/domain"
+	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
 const defaultBaseURL = "https://api.openweathermap.org/data/2.5"
@@ -69,7 +69,7 @@ type CurrentWeatherToolOutput struct {
 	Name          string             `json:"name" description:"City name"`
 }
 
-// CurrentWeatherTool implements domain.TypedTool for fetching current weather via OpenWeatherMap.
+// CurrentWeatherTool implements mcpserver.MCPTool for fetching current weather via OpenWeatherMap.
 type CurrentWeatherTool struct {
 	apiKey  string
 	baseURL string
@@ -77,39 +77,15 @@ type CurrentWeatherTool struct {
 }
 
 // NewCurrentWeatherTool creates a CurrentWeatherTool with the given API key.
-func NewCurrentWeatherTool(apiKey string) domain.TypedTool[CurrentWeatherToolInput, CurrentWeatherToolOutput] {
+func NewCurrentWeatherTool(apiKey string) mcpserver.MCPTool[CurrentWeatherToolInput, CurrentWeatherToolOutput] {
 	return &CurrentWeatherTool{apiKey: apiKey, baseURL: defaultBaseURL, http: &http.Client{}}
 }
 
-var _ domain.TypedTool[CurrentWeatherToolInput, CurrentWeatherToolOutput] = (*CurrentWeatherTool)(nil)
-
-// var _ domain.MCPPromptProvider = (*CurrentWeatherTool)(nil)
+var _ mcpserver.MCPTool[CurrentWeatherToolInput, CurrentWeatherToolOutput] = (*CurrentWeatherTool)(nil)
 
 // newCurrentWeatherToolWithBaseURL creates a CurrentWeatherTool with a custom base URL (for testing).
 func newCurrentWeatherToolWithBaseURL(apiKey, baseURL string, client *http.Client) *CurrentWeatherTool {
 	return &CurrentWeatherTool{apiKey: apiKey, baseURL: baseURL, http: client}
-}
-
-// Prompts implements domain.PromptProvider.
-// Exposes a "weather-assistant" MCP prompt that instructs the LLM to always
-// call this tool instead of answering from training knowledge.
-func (t *CurrentWeatherTool) Prompts() []domain.ToolPrompt {
-	return []domain.ToolPrompt{
-		{
-			Name:        "weather-assistant",
-			Description: "Activates real-time weather mode: always calls get_current_weather instead of relying on training knowledge.",
-			Messages: []domain.ToolPromptMessage{
-				{
-					Role: "user",
-					Text: "For any weather question in this conversation, you MUST call the get_current_weather tool. Never answer weather questions from training knowledge — it is always outdated. If the tool returns an error, say so explicitly.",
-				},
-				{
-					Role: "assistant",
-					Text: "Understood. For every weather question in this conversation I will call the get_current_weather tool and base my answer exclusively on its response, never on my training knowledge.",
-				},
-			},
-		},
-	}
 }
 
 // Name returns the tool name as expected by the model.

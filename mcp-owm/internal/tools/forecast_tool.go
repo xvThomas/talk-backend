@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/domain"
+	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
 // ForecastToolInput is the typed input for Forecast5Days3HoursWeatherTool.
@@ -56,7 +56,7 @@ type ForecastToolOutput struct {
 	Forecasts []ForecastEntry `json:"forecasts" description:"3-hour forecast entries (up to 40 timestamps for 5 days)"`
 }
 
-// Forecast5Days3HoursWeatherTool implements domain.TypedTool for fetching 5-day/3-hour forecast via OpenWeatherMap.
+// Forecast5Days3HoursWeatherTool implements mcpserver.MCPTool for fetching 5-day/3-hour forecast via OpenWeatherMap.
 type Forecast5Days3HoursWeatherTool struct {
 	apiKey  string
 	baseURL string
@@ -64,11 +64,11 @@ type Forecast5Days3HoursWeatherTool struct {
 }
 
 // NewForecast5Days3HoursWeatherTool creates a Forecast5Days3HoursWeatherTool with the given API key.
-func NewForecast5Days3HoursWeatherTool(apiKey string) domain.TypedTool[ForecastToolInput, ForecastToolOutput] {
+func NewForecast5Days3HoursWeatherTool(apiKey string) mcpserver.MCPTool[ForecastToolInput, ForecastToolOutput] {
 	return &Forecast5Days3HoursWeatherTool{apiKey: apiKey, baseURL: defaultBaseURL, http: &http.Client{}}
 }
 
-var _ domain.TypedTool[ForecastToolInput, ForecastToolOutput] = (*Forecast5Days3HoursWeatherTool)(nil)
+var _ mcpserver.MCPTool[ForecastToolInput, ForecastToolOutput] = (*Forecast5Days3HoursWeatherTool)(nil)
 
 // newForecast5Days3HoursWeatherToolWithBaseURL creates a Forecast5Days3HoursWeatherTool with a custom base URL (for testing).
 func newForecast5Days3HoursWeatherToolWithBaseURL(apiKey, baseURL string, client *http.Client) *Forecast5Days3HoursWeatherTool {

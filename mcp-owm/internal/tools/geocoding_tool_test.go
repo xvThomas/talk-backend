@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/testutils"
+	"github.com/xvThomas/LLMClientWrapper/talk-libs/testutils"
 
 	"github.com/joho/godotenv"
 )
