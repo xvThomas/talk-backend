@@ -1,5 +1,8 @@
 # LLMClientWrapper
 
+[![CI](https://github.com/xvThomas/LLMClientWrapper/actions/workflows/ci.yml/badge.svg)](https://github.com/xvThomas/LLMClientWrapper/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/xvThomas/LLMClientWrapper/branch/main/graph/badge.svg)](https://codecov.io/gh/xvThomas/LLMClientWrapper)
+
 A Go monorepo providing a CLI that routes questions to Anthropic or OpenAI-compatible models (GPT, Mistral, Devstral…) through a unified interface, plus standalone MCP (Model Context Protocol) tool servers.
 
 ---
@@ -97,6 +100,7 @@ Copy `.env.example` to `.env` at the root (or in each module directory) and fill
 | `make build` | Build all binaries (`talk`, `mcp-owm`, `mcp-playground`) |
 | `make test` | Run tests for all modules |
 | `make cover` | Run tests with coverage for all modules |
+| `make cover-html` | Generate HTML coverage reports for all modules |
 | `make vet` | Run `go vet` for all modules |
 | `make lint` | Run `golangci-lint` for all modules |
 | `make clean` | Remove build artifacts |

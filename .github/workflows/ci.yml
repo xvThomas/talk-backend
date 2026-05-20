@@ -32,6 +32,13 @@ jobs:
       - name: Coverage summary
         run: cd ${{ matrix.module }} && go tool cover -func=coverage.out
 
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ${{ matrix.module }}/coverage.out
+          flags: ${{ matrix.module }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+
   lint:
     runs-on: ubuntu-latest
     steps:

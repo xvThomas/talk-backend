@@ -28,6 +28,17 @@ cover: ## Run tests with coverage for all modules
 		$(ECHO) "$(COLOR_GREEN)✓ $$mod coverage done$(COLOR_RESET)"; \
 	done
 
+cover-html: ## Generate and open HTML coverage reports
+	@for mod in $(MODULES); do \
+		$(ECHO) "$(COLOR_YELLOW)Coverage HTML for $$mod...$(COLOR_RESET)"; \
+		(cd $$mod && go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out -o coverage.html) || exit 1; \
+		$(ECHO) "$(COLOR_GREEN)✓ $$mod coverage.html generated$(COLOR_RESET)"; \
+	done
+	@$(ECHO) "$(COLOR_BOLD)Reports:$(COLOR_RESET)"
+	@for mod in $(MODULES); do \
+		$(ECHO) "  $(COLOR_BLUE)$$mod/coverage.html$(COLOR_RESET)"; \
+	done
+
 vet: ## Run go vet for all modules
 	@for mod in $(MODULES); do \
 		$(ECHO) "$(COLOR_YELLOW)Vetting $$mod...$(COLOR_RESET)"; \
