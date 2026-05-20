@@ -18,12 +18,15 @@ A free OpenWeatherMap API key is required.
 |----------|----------|---------|-------------|
 | `OPENWEATHERMAP_API_KEY` | **yes** | — | Your OpenWeatherMap API key |
 | `OPENWEATHERMAP_FREE_PLAN` | no | `true` | Set to `false` to enable pro-only tools (hourly/daily forecasts) |
+| `OPENWEATHERMAP_RATE_LIMIT_PER_MINUTE` | no | `60` | Max API calls per minute |
 
 Example `.env`:
 
 ```env
 OPENWEATHERMAP_API_KEY=your_key_here
 OPENWEATHERMAP_FREE_PLAN=true
+# Rate limit (default matches the free plan)
+# OPENWEATHERMAP_RATE_LIMIT_PER_MINUTE=60
 ```
 
 ## Tools

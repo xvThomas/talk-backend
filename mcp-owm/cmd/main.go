@@ -5,6 +5,7 @@ import (
 
 	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/config"
 	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/prompts"
+	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/ratelimit"
 	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/tools"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/logger"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
@@ -20,11 +21,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	weatherTool := tools.NewCurrentWeatherTool(env.OpenWeatherMapAPIKey)
-	geocodingTool := tools.NewGeocodingTool(env.OpenWeatherMapAPIKey)
-	reverseGeocodingTool := tools.NewReverseGeocodingTool(env.OpenWeatherMapAPIKey)
-	airPollutionTool := tools.NewAirPollutionTool(env.OpenWeatherMapAPIKey)
-	airPollutionForecastTool := tools.NewAirPollutionForecastTool(env.OpenWeatherMapAPIKey)
+	limiter := ratelimit.NewLimiter(env.RateLimitPerMinute)
+
+	weatherTool := tools.NewCurrentWeatherTool(env.OpenWeatherMapAPIKey, limiter)
+	geocodingTool := tools.NewGeocodingTool(env.OpenWeatherMapAPIKey, limiter)
+	reverseGeocodingTool := tools.NewReverseGeocodingTool(env.OpenWeatherMapAPIKey, limiter)
+	airPollutionTool := tools.NewAirPollutionTool(env.OpenWeatherMapAPIKey, limiter)
+	airPollutionForecastTool := tools.NewAirPollutionForecastTool(env.OpenWeatherMapAPIKey, limiter)
 
 	opts := []mcpserver.Option{
 		mcpserver.WithTools(mcpserver.RegisterTool(weatherTool)),
@@ -40,14 +43,14 @@ func main() {
 	}
 
 	if env.FreePlan {
-		forecastTool := tools.NewForecast5Days3HoursWeatherTool(env.OpenWeatherMapAPIKey)
+		forecastTool := tools.NewForecast5Days3HoursWeatherTool(env.OpenWeatherMapAPIKey, limiter)
 		opts = append(opts,
 			mcpserver.WithTools(mcpserver.RegisterTool(forecastTool)),
 			mcpserver.WithPrompts(mcpserver.RegisterPrompt(prompts.ForecastWeather)),
 		)
 	} else {
-		hourlyForecastTool := tools.NewHourlyForecastTool(env.OpenWeatherMapAPIKey)
-		dailyForecastTool := tools.NewDailyForecastTool(env.OpenWeatherMapAPIKey)
+		hourlyForecastTool := tools.NewHourlyForecastTool(env.OpenWeatherMapAPIKey, limiter)
+		dailyForecastTool := tools.NewDailyForecastTool(env.OpenWeatherMapAPIKey, limiter)
 		opts = append(opts,
 			mcpserver.WithTools(mcpserver.RegisterTool(hourlyForecastTool)),
 			mcpserver.WithTools(mcpserver.RegisterTool(dailyForecastTool)),

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/ratelimit"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
@@ -40,18 +41,19 @@ type AirPollutionTool struct {
 	apiKey  string
 	baseURL string
 	http    *http.Client
+	limiter *ratelimit.Limiter
 }
 
 // NewAirPollutionTool creates an AirPollutionTool with the given API key.
-func NewAirPollutionTool(apiKey string) mcpserver.MCPTool[AirPollutionToolInput, AirPollutionToolOutput] {
-	return &AirPollutionTool{apiKey: apiKey, baseURL: defaultBaseURL, http: &http.Client{}}
+func NewAirPollutionTool(apiKey string, limiter *ratelimit.Limiter) mcpserver.MCPTool[AirPollutionToolInput, AirPollutionToolOutput] {
+	return &AirPollutionTool{apiKey: apiKey, baseURL: defaultBaseURL, http: &http.Client{}, limiter: limiter}
 }
 
 var _ mcpserver.MCPTool[AirPollutionToolInput, AirPollutionToolOutput] = (*AirPollutionTool)(nil)
 
 // newAirPollutionToolWithBaseURL creates an AirPollutionTool with a custom base URL (for testing).
 func newAirPollutionToolWithBaseURL(apiKey, baseURL string, client *http.Client) *AirPollutionTool {
-	return &AirPollutionTool{apiKey: apiKey, baseURL: baseURL, http: client}
+	return &AirPollutionTool{apiKey: apiKey, baseURL: baseURL, http: client, limiter: ratelimit.Noop()}
 }
 
 // Name returns the tool name as expected by the model.
@@ -120,6 +122,10 @@ func (t *AirPollutionTool) fetchAirPollution(ctx context.Context, lat, lon float
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("building air pollution request: %w", err)
+	}
+
+	if err := t.limiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limiter: %w", err)
 	}
 
 	resp, err := t.http.Do(req)

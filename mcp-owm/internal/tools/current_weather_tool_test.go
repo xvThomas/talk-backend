@@ -9,13 +9,15 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/ratelimit"
+
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/testutils"
 
 	"github.com/joho/godotenv"
 )
 
 func TestCurrentWeatherTool_Metadata(t *testing.T) {
-	tool := NewCurrentWeatherTool("key")
+	tool := NewCurrentWeatherTool("key", ratelimit.Noop())
 	if tool.Name() != "get_current_weather" {
 		t.Errorf("unexpected tool name: %q", tool.Name())
 	}
@@ -109,7 +111,7 @@ func TestCurrentWeatherTool_Call_Success(t *testing.T) {
 }
 
 func TestCurrentWeatherTool_Call_EmptyCity(t *testing.T) {
-	tool := NewCurrentWeatherTool("key")
+	tool := NewCurrentWeatherTool("key", ratelimit.Noop())
 	_, err := tool.Call(context.Background(), CurrentWeatherToolInput{Lat: 0, Lon: 0})
 	if err == nil {
 		t.Error("expected error for zero coordinates")
@@ -166,7 +168,7 @@ func TestCurrentWeatherTool_Integration(t *testing.T) {
 		t.Skip("OPENWEATHERMAP_API_KEY not set in .env.test, skipping integration test")
 	}
 
-	tool := NewCurrentWeatherTool(apiKey)
+	tool := NewCurrentWeatherTool(apiKey, ratelimit.Noop())
 	result, err := tool.Call(context.Background(), CurrentWeatherToolInput{Lat: 48.8566, Lon: 2.3522})
 	if err != nil {
 		t.Fatalf("integration call failed: %v", err)

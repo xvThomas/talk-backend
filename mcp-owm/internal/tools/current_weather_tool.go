@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/ratelimit"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
@@ -74,18 +75,19 @@ type CurrentWeatherTool struct {
 	apiKey  string
 	baseURL string
 	http    *http.Client
+	limiter *ratelimit.Limiter
 }
 
 // NewCurrentWeatherTool creates a CurrentWeatherTool with the given API key.
-func NewCurrentWeatherTool(apiKey string) mcpserver.MCPTool[CurrentWeatherToolInput, CurrentWeatherToolOutput] {
-	return &CurrentWeatherTool{apiKey: apiKey, baseURL: defaultBaseURL, http: &http.Client{}}
+func NewCurrentWeatherTool(apiKey string, limiter *ratelimit.Limiter) mcpserver.MCPTool[CurrentWeatherToolInput, CurrentWeatherToolOutput] {
+	return &CurrentWeatherTool{apiKey: apiKey, baseURL: defaultBaseURL, http: &http.Client{}, limiter: limiter}
 }
 
 var _ mcpserver.MCPTool[CurrentWeatherToolInput, CurrentWeatherToolOutput] = (*CurrentWeatherTool)(nil)
 
 // newCurrentWeatherToolWithBaseURL creates a CurrentWeatherTool with a custom base URL (for testing).
 func newCurrentWeatherToolWithBaseURL(apiKey, baseURL string, client *http.Client) *CurrentWeatherTool {
-	return &CurrentWeatherTool{apiKey: apiKey, baseURL: baseURL, http: client}
+	return &CurrentWeatherTool{apiKey: apiKey, baseURL: baseURL, http: client, limiter: ratelimit.Noop()}
 }
 
 // Name returns the tool name as expected by the model.
@@ -207,6 +209,10 @@ func (t *CurrentWeatherTool) fetchWeather(ctx context.Context, lat, lon float64)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("building weather request: %w", err)
+	}
+
+	if err := t.limiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limiter: %w", err)
 	}
 
 	resp, err := t.http.Do(req)

@@ -20,6 +20,37 @@ func TestLoadServerEnv_Success(t *testing.T) {
 	if !env.FreePlan {
 		t.Error("expected FreePlan to default to true")
 	}
+	if env.RateLimitPerMinute != 60 {
+		t.Errorf("expected default RateLimitPerMinute 60, got %d", env.RateLimitPerMinute)
+	}
+}
+
+func TestLoadServerEnv_RateLimitCustom(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("OPENWEATHERMAP_API_KEY", "key")
+	t.Setenv("OPENWEATHERMAP_RATE_LIMIT_PER_MINUTE", "600")
+
+	env, err := LoadServerEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if env.RateLimitPerMinute != 600 {
+		t.Errorf("expected RateLimitPerMinute 600, got %d", env.RateLimitPerMinute)
+	}
+}
+
+func TestLoadServerEnv_RateLimitInvalid(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("OPENWEATHERMAP_API_KEY", "key")
+	t.Setenv("OPENWEATHERMAP_RATE_LIMIT_PER_MINUTE", "not-a-number")
+
+	env, err := LoadServerEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if env.RateLimitPerMinute != 60 {
+		t.Errorf("expected default RateLimitPerMinute 60 for invalid value, got %d", env.RateLimitPerMinute)
+	}
 }
 
 func TestLoadServerEnv_MissingAPIKey(t *testing.T) {
@@ -158,12 +189,13 @@ func clearEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
 		"OPENWEATHERMAP_API_KEY", "OPENWEATHERMAP_FREE_PLAN",
+		"OPENWEATHERMAP_RATE_LIMIT_PER_MINUTE",
 		"X_API_KEY", "BASE_URL",
 		"OAUTH_AUTHORIZATION_SERVER", "OAUTH_AUDIENCE",
 		"OAUTH_SCOPES", "OAUTH_CLIENT_SECRET",
 	} {
 		t.Setenv(key, "")
-		os.Unsetenv(key)
+		_ = os.Unsetenv(key)
 	}
 }
 

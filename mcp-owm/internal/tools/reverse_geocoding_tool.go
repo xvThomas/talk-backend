@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/ratelimit"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
@@ -26,18 +27,19 @@ type ReverseGeocodingTool struct {
 	apiKey  string
 	baseURL string
 	http    *http.Client
+	limiter *ratelimit.Limiter
 }
 
 // NewReverseGeocodingTool creates a ReverseGeocodingTool with the given API key.
-func NewReverseGeocodingTool(apiKey string) mcpserver.MCPTool[ReverseGeocodingToolInput, ReverseGeocodingToolOutput] {
-	return &ReverseGeocodingTool{apiKey: apiKey, baseURL: defaultGeoBaseURL, http: &http.Client{}}
+func NewReverseGeocodingTool(apiKey string, limiter *ratelimit.Limiter) mcpserver.MCPTool[ReverseGeocodingToolInput, ReverseGeocodingToolOutput] {
+	return &ReverseGeocodingTool{apiKey: apiKey, baseURL: defaultGeoBaseURL, http: &http.Client{}, limiter: limiter}
 }
 
 var _ mcpserver.MCPTool[ReverseGeocodingToolInput, ReverseGeocodingToolOutput] = (*ReverseGeocodingTool)(nil)
 
 // newReverseGeocodingToolWithBaseURL creates a ReverseGeocodingTool with a custom base URL (for testing).
 func newReverseGeocodingToolWithBaseURL(apiKey, baseURL string, client *http.Client) *ReverseGeocodingTool {
-	return &ReverseGeocodingTool{apiKey: apiKey, baseURL: baseURL, http: client}
+	return &ReverseGeocodingTool{apiKey: apiKey, baseURL: baseURL, http: client, limiter: ratelimit.Noop()}
 }
 
 // Name returns the tool name as expected by the model.
@@ -65,6 +67,10 @@ func (t *ReverseGeocodingTool) Call(ctx context.Context, input ReverseGeocodingT
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return ReverseGeocodingToolOutput{}, fmt.Errorf("building reverse geocoding request: %w", err)
+	}
+
+	if err := t.limiter.Wait(ctx); err != nil {
+		return ReverseGeocodingToolOutput{}, fmt.Errorf("rate limiter: %w", err)
 	}
 
 	resp, err := t.http.Do(req)

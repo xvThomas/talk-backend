@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/ratelimit"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
@@ -61,18 +62,19 @@ type Forecast5Days3HoursWeatherTool struct {
 	apiKey  string
 	baseURL string
 	http    *http.Client
+	limiter *ratelimit.Limiter
 }
 
 // NewForecast5Days3HoursWeatherTool creates a Forecast5Days3HoursWeatherTool with the given API key.
-func NewForecast5Days3HoursWeatherTool(apiKey string) mcpserver.MCPTool[ForecastToolInput, ForecastToolOutput] {
-	return &Forecast5Days3HoursWeatherTool{apiKey: apiKey, baseURL: defaultBaseURL, http: &http.Client{}}
+func NewForecast5Days3HoursWeatherTool(apiKey string, limiter *ratelimit.Limiter) mcpserver.MCPTool[ForecastToolInput, ForecastToolOutput] {
+	return &Forecast5Days3HoursWeatherTool{apiKey: apiKey, baseURL: defaultBaseURL, http: &http.Client{}, limiter: limiter}
 }
 
 var _ mcpserver.MCPTool[ForecastToolInput, ForecastToolOutput] = (*Forecast5Days3HoursWeatherTool)(nil)
 
 // newForecast5Days3HoursWeatherToolWithBaseURL creates a Forecast5Days3HoursWeatherTool with a custom base URL (for testing).
 func newForecast5Days3HoursWeatherToolWithBaseURL(apiKey, baseURL string, client *http.Client) *Forecast5Days3HoursWeatherTool {
-	return &Forecast5Days3HoursWeatherTool{apiKey: apiKey, baseURL: baseURL, http: client}
+	return &Forecast5Days3HoursWeatherTool{apiKey: apiKey, baseURL: baseURL, http: client, limiter: ratelimit.Noop()}
 }
 
 // Name returns the tool name as expected by the model.
@@ -214,6 +216,10 @@ func (t *Forecast5Days3HoursWeatherTool) fetchForecast(ctx context.Context, lat,
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("building forecast request: %w", err)
+	}
+
+	if err := t.limiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limiter: %w", err)
 	}
 
 	resp, err := t.http.Do(req)

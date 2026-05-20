@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/ratelimit"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
@@ -37,18 +38,19 @@ type GeocodingTool struct {
 	apiKey  string
 	baseURL string
 	http    *http.Client
+	limiter *ratelimit.Limiter
 }
 
 // NewGeocodingTool creates a GeocodingTool with the given API key.
-func NewGeocodingTool(apiKey string) mcpserver.MCPTool[GeocodingToolInput, GeocodingToolOutput] {
-	return &GeocodingTool{apiKey: apiKey, baseURL: defaultGeoBaseURL, http: &http.Client{}}
+func NewGeocodingTool(apiKey string, limiter *ratelimit.Limiter) mcpserver.MCPTool[GeocodingToolInput, GeocodingToolOutput] {
+	return &GeocodingTool{apiKey: apiKey, baseURL: defaultGeoBaseURL, http: &http.Client{}, limiter: limiter}
 }
 
 var _ mcpserver.MCPTool[GeocodingToolInput, GeocodingToolOutput] = (*GeocodingTool)(nil)
 
 // newGeocodingToolWithBaseURL creates a GeocodingTool with a custom base URL (for testing).
 func newGeocodingToolWithBaseURL(apiKey, baseURL string, client *http.Client) *GeocodingTool {
-	return &GeocodingTool{apiKey: apiKey, baseURL: baseURL, http: client}
+	return &GeocodingTool{apiKey: apiKey, baseURL: baseURL, http: client, limiter: ratelimit.Noop()}
 }
 
 // Name returns the tool name as expected by the model.
@@ -76,6 +78,10 @@ func (t *GeocodingTool) Call(ctx context.Context, input GeocodingToolInput) (Geo
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return GeocodingToolOutput{}, fmt.Errorf("building geocoding request: %w", err)
+	}
+
+	if err := t.limiter.Wait(ctx); err != nil {
+		return GeocodingToolOutput{}, fmt.Errorf("rate limiter: %w", err)
 	}
 
 	resp, err := t.http.Do(req)

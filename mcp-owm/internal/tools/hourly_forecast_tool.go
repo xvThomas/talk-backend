@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/ratelimit"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
@@ -31,18 +32,19 @@ type HourlyForecastTool struct {
 	apiKey  string
 	baseURL string
 	http    *http.Client
+	limiter *ratelimit.Limiter
 }
 
 // NewHourlyForecastTool creates a HourlyForecastTool with the given API key.
-func NewHourlyForecastTool(apiKey string) mcpserver.MCPTool[HourlyForecastToolInput, HourlyForecastToolOutput] {
-	return &HourlyForecastTool{apiKey: apiKey, baseURL: defaultProBaseURL, http: &http.Client{}}
+func NewHourlyForecastTool(apiKey string, limiter *ratelimit.Limiter) mcpserver.MCPTool[HourlyForecastToolInput, HourlyForecastToolOutput] {
+	return &HourlyForecastTool{apiKey: apiKey, baseURL: defaultProBaseURL, http: &http.Client{}, limiter: limiter}
 }
 
 var _ mcpserver.MCPTool[HourlyForecastToolInput, HourlyForecastToolOutput] = (*HourlyForecastTool)(nil)
 
 // newHourlyForecastToolWithBaseURL creates a HourlyForecastTool with a custom base URL (for testing).
 func newHourlyForecastToolWithBaseURL(apiKey, baseURL string, client *http.Client) *HourlyForecastTool {
-	return &HourlyForecastTool{apiKey: apiKey, baseURL: baseURL, http: client}
+	return &HourlyForecastTool{apiKey: apiKey, baseURL: baseURL, http: client, limiter: ratelimit.Noop()}
 }
 
 // Name returns the tool name as expected by the model.
@@ -184,6 +186,10 @@ func (t *HourlyForecastTool) fetchHourlyForecast(ctx context.Context, lat, lon f
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("building hourly forecast request: %w", err)
+	}
+
+	if err := t.limiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limiter: %w", err)
 	}
 
 	resp, err := t.http.Do(req)

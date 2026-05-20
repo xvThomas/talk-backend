@@ -9,13 +9,15 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/ratelimit"
+
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/testutils"
 
 	"github.com/joho/godotenv"
 )
 
 func TestGeocodingTool_Metadata(t *testing.T) {
-	tool := NewGeocodingTool("key")
+	tool := NewGeocodingTool("key", ratelimit.Noop())
 	if tool.Name() != "geocode" {
 		t.Errorf("unexpected tool name: %q", tool.Name())
 	}
@@ -84,7 +86,7 @@ func TestGeocodingTool_Call_WithLimit(t *testing.T) {
 }
 
 func TestGeocodingTool_Call_EmptyCity(t *testing.T) {
-	tool := NewGeocodingTool("key")
+	tool := NewGeocodingTool("key", ratelimit.Noop())
 	_, err := tool.Call(context.Background(), GeocodingToolInput{City: ""})
 	if err == nil {
 		t.Error("expected error for empty city")
@@ -113,7 +115,7 @@ func TestGeocodingTool_Integration(t *testing.T) {
 		t.Skip("OPENWEATHERMAP_API_KEY not set in .env.test, skipping integration test")
 	}
 
-	tool := NewGeocodingTool(apiKey)
+	tool := NewGeocodingTool(apiKey, ratelimit.Noop())
 	result, err := tool.Call(context.Background(), GeocodingToolInput{City: "Paris"})
 	if err != nil {
 		t.Fatalf("integration call failed: %v", err)

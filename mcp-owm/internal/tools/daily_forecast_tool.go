@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/ratelimit"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
@@ -64,18 +65,19 @@ type DailyForecastTool struct {
 	apiKey  string
 	baseURL string
 	http    *http.Client
+	limiter *ratelimit.Limiter
 }
 
 // NewDailyForecastTool creates a DailyForecastTool with the given API key.
-func NewDailyForecastTool(apiKey string) mcpserver.MCPTool[DailyForecastToolInput, DailyForecastToolOutput] {
-	return &DailyForecastTool{apiKey: apiKey, baseURL: defaultBaseURL, http: &http.Client{}}
+func NewDailyForecastTool(apiKey string, limiter *ratelimit.Limiter) mcpserver.MCPTool[DailyForecastToolInput, DailyForecastToolOutput] {
+	return &DailyForecastTool{apiKey: apiKey, baseURL: defaultBaseURL, http: &http.Client{}, limiter: limiter}
 }
 
 var _ mcpserver.MCPTool[DailyForecastToolInput, DailyForecastToolOutput] = (*DailyForecastTool)(nil)
 
 // newDailyForecastToolWithBaseURL creates a DailyForecastTool with a custom base URL (for testing).
 func newDailyForecastToolWithBaseURL(apiKey, baseURL string, client *http.Client) *DailyForecastTool {
-	return &DailyForecastTool{apiKey: apiKey, baseURL: baseURL, http: client}
+	return &DailyForecastTool{apiKey: apiKey, baseURL: baseURL, http: client, limiter: ratelimit.Noop()}
 }
 
 // Name returns the tool name as expected by the model.
@@ -219,6 +221,10 @@ func (t *DailyForecastTool) fetchDailyForecast(ctx context.Context, lat, lon flo
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("building daily forecast request: %w", err)
+	}
+
+	if err := t.limiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limiter: %w", err)
 	}
 
 	resp, err := t.http.Do(req)
