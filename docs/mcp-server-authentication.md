@@ -58,7 +58,7 @@ Client                          MCP Server
   │── POST /mcp ────────────────────>│
   │   Header: X-API-Key: <secret>    │
   │                                  │── Verify X-API-Key
-  │<──────────── 200 OK ─────-───────│
+  │<──────────── 200 OK ─────────────│
 ```
 
 ---
@@ -89,12 +89,12 @@ Client                    Authorization Server          MCP Server
   │   (with audience=owm-mcp)    │                          │
   │<──── redirect + code ─────-──│                          │
   │── POST /token ──────────────>│                          │
-  │<──── access_token (JWT) ──-──│                          │
+  │<──── access_token (JWT) ─────│                          │
   │                              │                          │
   │── POST /mcp ───────────────────────────────────────────>│
   │   Header: Authorization: Bearer <JWT>                   │
   │                              │                          │── Validate JWT (JWKS)
-  │<──────────────────────────── 200 OK ────────────────-───│
+  │<──────────────────────────── 200 OK ────────────────────│
 ```
 
 ### 2.3. Proxy Mode (for Claude.ai / Auth0)
@@ -113,31 +113,31 @@ The AS proxy solves this problem by exposing three local endpoints:
 Client              MCP Server (proxy)           Auth0
   │                        │                        │
   │── POST /mcp ──────────>│                        │
-  │<── 401 + WWW-Auth ───-─│                        │
+  │<── 401 + WWW-Auth ─────│                        │
   │                        │                        │
   │── GET /.well-known/ ──>│                        │
   │   oauth-protected-     │                        │
   │   resource             │                        │
-  │<── {authorization_ ─-──│                        │
+  │<── {authorization_ ────│                        │
   │     servers: [self]}   │                        │
   │                        │                        │
   │── GET /.well-known/ ──>│                        │
   │   oauth-authorization- │                        │
   │   server               │                        │
-  │<── {endpoints proxy} -─│                        │
+  │<── {endpoints proxy} ──│                        │
   │                        │                        │
   │── GET /authorize ─────>│                        │
   │                        │── + audience=owm-mcp ─>│
   │                        │── + offline_access ───>│
-  │<── redirect Auth0 ───-─│<── redirect + code ─-──│
+  │<── redirect Auth0 ─────│<── redirect + code ─-──│
   │                        │                        │
   │── POST /token ────────>│                        │
   │                        │── + client_secret ────>│
-  │<── access_token ────-──│<── JWT + refresh ───-──│
+  │<── access_token ───────│<── JWT + refresh ───-──│
   │                        │                        │
   │── POST /mcp ──────────>│                        │
   │   Bearer <JWT>         │── Validate JWT (JWKS)  │
-  │<── 200 OK ───────────-─│                        │
+  │<── 200 OK ─────────────│                        │
 ```
 
 ---
