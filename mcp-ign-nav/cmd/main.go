@@ -8,6 +8,7 @@ import (
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/logger"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/version"
+	"golang.org/x/time/rate"
 )
 
 func main() {
@@ -19,8 +20,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	reverseGeocodeTool := tools.NewReverseGeocodingTool()
-	geocodeTool := tools.NewGeocodingTool()
+	// Shared rate limiter for IGN Géoplateforme endpoints (50 req/s).
+	ignLimiter := rate.NewLimiter(rate.Limit(50), 50)
+
+	reverseGeocodeTool := tools.NewReverseGeocodingTool(ignLimiter)
+	geocodeTool := tools.NewGeocodingTool(ignLimiter)
 
 	opts := []mcpserver.Option{
 		mcpserver.WithTools(

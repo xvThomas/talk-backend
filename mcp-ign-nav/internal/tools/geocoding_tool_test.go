@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"golang.org/x/time/rate"
 )
 
 func TestGeocodingTool_Metadata(t *testing.T) {
-	tool := NewGeocodingTool()
+	tool := NewGeocodingTool(rate.NewLimiter(rate.Inf, 0))
 	if tool.Name() != "geocode" {
 		t.Errorf("unexpected tool name: %q", tool.Name())
 	}
@@ -82,7 +84,7 @@ func TestGeocodingTool_Call_Success(t *testing.T) {
 }
 
 func TestGeocodingTool_Call_EmptyQuery(t *testing.T) {
-	tool := NewGeocodingTool()
+	tool := NewGeocodingTool(rate.NewLimiter(rate.Inf, 0))
 	_, err := tool.Call(context.Background(), GeocodingToolInput{Query: ""})
 	if err == nil {
 		t.Error("expected error for empty query")
@@ -175,7 +177,7 @@ func TestGeocodingTool_Call_DefaultLimit(t *testing.T) {
 }
 
 func TestIntegration_GeocodingTool_SearchAddress(t *testing.T) {
-	tool := NewGeocodingTool()
+	tool := NewGeocodingTool(rate.NewLimiter(rate.Inf, 0))
 	result, err := tool.Call(context.Background(), GeocodingToolInput{
 		Query: "10 rue de rivoli paris",
 		Limit: 1,
@@ -197,7 +199,7 @@ func TestIntegration_GeocodingTool_SearchAddress(t *testing.T) {
 }
 
 func TestIntegration_GeocodingTool_SearchWithPostcode(t *testing.T) {
-	tool := NewGeocodingTool()
+	tool := NewGeocodingTool(rate.NewLimiter(rate.Inf, 0))
 	result, err := tool.Call(context.Background(), GeocodingToolInput{
 		Query:    "rue nationale",
 		Postcode: "75013",

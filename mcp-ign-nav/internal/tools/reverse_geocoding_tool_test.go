@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"golang.org/x/time/rate"
 )
 
 func TestReverseGeocodingTool_Metadata(t *testing.T) {
-	tool := NewReverseGeocodingTool()
+	tool := NewReverseGeocodingTool(rate.NewLimiter(rate.Inf, 0))
 	if tool.Name() != "reverse_geocode" {
 		t.Errorf("unexpected tool name: %q", tool.Name())
 	}
@@ -134,7 +136,7 @@ func TestReverseGeocodingTool_Call_MultipleCoordinates(t *testing.T) {
 }
 
 func TestReverseGeocodingTool_Call_EmptyCoordinates(t *testing.T) {
-	tool := NewReverseGeocodingTool()
+	tool := NewReverseGeocodingTool(rate.NewLimiter(rate.Inf, 0))
 	_, err := tool.Call(context.Background(), ReverseGeocodingToolInput{
 		Coordinates: nil,
 	})
@@ -144,7 +146,7 @@ func TestReverseGeocodingTool_Call_EmptyCoordinates(t *testing.T) {
 }
 
 func TestReverseGeocodingTool_Call_TooManyCoordinates(t *testing.T) {
-	tool := NewReverseGeocodingTool()
+	tool := NewReverseGeocodingTool(rate.NewLimiter(rate.Inf, 0))
 	coords := make([]Coordinate, 11)
 	for i := range coords {
 		coords[i] = Coordinate{Lon: float64(i), Lat: float64(i)}
@@ -212,7 +214,7 @@ func TestReverseGeocodingTool_Call_CustomLimit(t *testing.T) {
 }
 
 func TestIntegration_ReverseGeocodingTool_Paris(t *testing.T) {
-	tool := NewReverseGeocodingTool()
+	tool := NewReverseGeocodingTool(rate.NewLimiter(rate.Inf, 0))
 	result, err := tool.Call(context.Background(), ReverseGeocodingToolInput{
 		Coordinates: []Coordinate{{Lon: 2.3522, Lat: 48.8566}},
 		Limit:       1,
@@ -241,7 +243,7 @@ func TestIntegration_ReverseGeocodingTool_Paris(t *testing.T) {
 }
 
 func TestIntegration_ReverseGeocodingTool_MultipleCoordinates(t *testing.T) {
-	tool := NewReverseGeocodingTool()
+	tool := NewReverseGeocodingTool(rate.NewLimiter(rate.Inf, 0))
 	result, err := tool.Call(context.Background(), ReverseGeocodingToolInput{
 		Coordinates: []Coordinate{
 			{Lon: 2.3522, Lat: 48.8566},

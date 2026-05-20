@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -59,21 +60,23 @@ type ReverseGeocodingToolOutput struct {
 type ReverseGeocodingTool struct {
 	baseURL string
 	http    *http.Client
+	limiter *rate.Limiter
 }
 
 var _ mcpserver.MCPTool[ReverseGeocodingToolInput, ReverseGeocodingToolOutput] = (*ReverseGeocodingTool)(nil)
 
 // NewReverseGeocodingTool creates a ReverseGeocodingTool using the IGN Géoplateforme API.
-func NewReverseGeocodingTool() *ReverseGeocodingTool {
+func NewReverseGeocodingTool(limiter *rate.Limiter) *ReverseGeocodingTool {
 	return &ReverseGeocodingTool{
 		baseURL: defaultBaseURL,
 		http:    &http.Client{Timeout: httpClientTimeout},
+		limiter: limiter,
 	}
 }
 
 // newReverseGeocodingToolWithBaseURL creates a ReverseGeocodingTool with a custom base URL (for testing).
 func newReverseGeocodingToolWithBaseURL(baseURL string, client *http.Client) *ReverseGeocodingTool {
-	return &ReverseGeocodingTool{baseURL: baseURL, http: client}
+	return &ReverseGeocodingTool{baseURL: baseURL, http: client, limiter: rate.NewLimiter(rate.Inf, 0)}
 }
 
 // Name returns the tool name.
@@ -127,6 +130,10 @@ func (t *ReverseGeocodingTool) reverseGeocode(ctx context.Context, coord Coordin
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("building request: %w", err)
+	}
+
+	if err := t.limiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limiter: %w", err)
 	}
 
 	resp, err := t.http.Do(req)

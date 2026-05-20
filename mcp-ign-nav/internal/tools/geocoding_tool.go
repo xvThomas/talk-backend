@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
+	"golang.org/x/time/rate"
 )
 
 const defaultSearchLimit = 5
@@ -48,21 +49,23 @@ type GeocodingToolOutput struct {
 type GeocodingTool struct {
 	baseURL string
 	http    *http.Client
+	limiter *rate.Limiter
 }
 
 var _ mcpserver.MCPTool[GeocodingToolInput, GeocodingToolOutput] = (*GeocodingTool)(nil)
 
 // NewGeocodingTool creates a GeocodingTool using the IGN Géoplateforme API.
-func NewGeocodingTool() *GeocodingTool {
+func NewGeocodingTool(limiter *rate.Limiter) *GeocodingTool {
 	return &GeocodingTool{
 		baseURL: defaultBaseURL,
 		http:    &http.Client{Timeout: httpClientTimeout},
+		limiter: limiter,
 	}
 }
 
 // newGeocodingToolWithBaseURL creates a GeocodingTool with a custom base URL (for testing).
 func newGeocodingToolWithBaseURL(baseURL string, client *http.Client) *GeocodingTool {
-	return &GeocodingTool{baseURL: baseURL, http: client}
+	return &GeocodingTool{baseURL: baseURL, http: client, limiter: rate.NewLimiter(rate.Inf, 0)}
 }
 
 // Name returns the tool name.
@@ -114,6 +117,10 @@ func (t *GeocodingTool) Call(ctx context.Context, input GeocodingToolInput) (Geo
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return GeocodingToolOutput{}, fmt.Errorf("building request: %w", err)
+	}
+
+	if err := t.limiter.Wait(ctx); err != nil {
+		return GeocodingToolOutput{}, fmt.Errorf("rate limiter: %w", err)
 	}
 
 	resp, err := t.http.Do(req)
