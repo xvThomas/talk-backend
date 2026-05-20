@@ -1,10 +1,11 @@
 FROM golang:1.25-alpine AS builder
 
 WORKDIR /src
-COPY go.work ./
+COPY .git/ ./.git/
 COPY talk-libs/ ./talk-libs/
 COPY mcp-playground/ ./mcp-playground/
 
+ENV GOWORK=off
 RUN cd mcp-playground && go mod download
 RUN cd mcp-playground && CGO_ENABLED=0 go build -o /bin/mcp-playground ./cmd
 
