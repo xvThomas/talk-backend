@@ -1,12 +1,16 @@
 FROM golang:1.25-alpine AS builder
 
+RUN apk add --no-cache git
+
 WORKDIR /src
-COPY go.work ./
+COPY .git/ ./.git/
 COPY talk-libs/ ./talk-libs/
 COPY mcp-ign-nav/ ./mcp-ign-nav/
 
-RUN cd mcp-ign-nav && go mod download
-RUN cd mcp-ign-nav && CGO_ENABLED=0 go build -o /bin/mcp-ign-nav ./cmd
+ENV GOWORK=off
+RUN VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev") && \
+    cd mcp-ign-nav && go mod download && \
+    CGO_ENABLED=0 go build -ldflags "-X github.com/xvThomas/LLMClientWrapper/talk-libs/version.Version=${VERSION}" -o /bin/mcp-ign-nav ./cmd
 
 FROM alpine:3.21
 
