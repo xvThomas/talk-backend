@@ -4,6 +4,8 @@ import (
 	"os"
 
 	"github.com/xvThomas/LLMClientWrapper/mcp-playground/internal/config"
+	"github.com/xvThomas/LLMClientWrapper/mcp-playground/internal/prompts"
+	"github.com/xvThomas/LLMClientWrapper/mcp-playground/internal/tools"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/logger"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/version"
@@ -18,10 +20,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	var opts []mcpserver.Option
+	sumTool := tools.NewSumTool()
 
-	// Register your tools here:
-	// opts = append(opts, mcpserver.WithTools(mcpserver.RegisterTool(myTool)))
+	opts := []mcpserver.Option{
+		mcpserver.WithTools(mcpserver.RegisterTool(sumTool)),
+		mcpserver.WithPrompts(mcpserver.RegisterPrompt(prompts.Sum)),
+	}
 
 	if env.APIKey != "" {
 		opts = append(opts, mcpserver.WithAPIKey(env.APIKey))

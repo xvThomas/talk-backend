@@ -200,3 +200,76 @@ Copy from `mcp-playground/Dockerfile` and adjust the module name.
 - **Tools are internal** to each server — they are NOT importable by other modules.
 - `main.go` must stay thin: load config, create tools, wire app, run.
 - Auth options are conditional: only add `WithAPIKey` / `WithOAuth` when the env vars are set.
+
+### 8. Create prompts (optional)
+
+Prompts give LLM clients pre-defined instructions on how to use your tools. Create `internal/prompts/prompts.go`:
+
+```go
+package prompts
+
+import "github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
+
+var MyPrompt = mcpserver.Prompt{
+    Name:        "my_prompt",
+    Description: "Explain what this prompt does",
+    Arguments: []mcpserver.PromptArgument{
+        {Name: "param", Description: "What this parameter is for", Required: true},
+    },
+    Messages: []mcpserver.PromptMessage{
+        {
+            Role: "user",
+            Text: "Use the my_tool tool with {{param}}. Present the result clearly.",
+        },
+    },
+}
+```
+
+Register prompts in `main.go` alongside tools:
+
+```go
+opts := []mcpserver.Option{
+    mcpserver.WithTools(mcpserver.RegisterTool(myTool)),
+    mcpserver.WithPrompts(mcpserver.RegisterPrompt(prompts.MyPrompt)),
+}
+```
+
+- Use `{{argName}}` placeholders in message text — they are replaced with argument values at runtime.
+- A prompt can have multiple messages (e.g. user + assistant for few-shot examples).
+
+### 9. Hot reload with Air
+
+For rapid development, use [Air](https://github.com/air-verse/air) for hot reload. Create `.air.toml` at the server root:
+
+```toml
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./tmp/mcp-<server-name>.exe ./cmd"
+bin = "./tmp/mcp-<server-name>.exe"
+args_bin = ["--transport", "http", "--addr", "localhost:8080"]
+include_ext = ["go", "toml", "env"]
+include_dir = ["cmd", "internal"]
+exclude_dir = ["tmp", "bin"]
+delay = 1000
+
+[log]
+time = false
+
+[misc]
+clean_on_exit = true
+```
+
+Add the `dev` target to your `Makefile`:
+
+```makefile
+dev: ## Run the server with hot reload (air) in http mode
+	air
+```
+
+Add `tmp/` to `.gitignore`. Install Air with:
+
+```bash
+go install github.com/air-verse/air@latest
+```

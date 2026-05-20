@@ -3,6 +3,10 @@
 		"mcp-owm-local": {
 			"url": "http://localhost:8080/mcp",
 			"type": "http"
+		},
+		"mcp-playground-local": {
+			"url": "http://localhost:8080/mcp",
+			"type": "http"
 		}
 	},
 	"inputs": []
