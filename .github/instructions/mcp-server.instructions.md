@@ -134,6 +134,17 @@ func LoadServerEnv(envFiles ...string) (*ServerEnv, error) {
 }
 ```
 
+Create `internal/config/config_test.go` following the same pattern as `mcp-playground/internal/config/config_test.go`. Tests must cover:
+- Loading with no file and no env vars (all fields empty/default)
+- Loading from a `.env` file (all fields populated correctly)
+- Missing file does not error
+- Pre-existing env vars are NOT overridden by the file
+- Multiple files can be loaded
+- `OAuthScopesList()` correctly splits comma-separated scopes
+- Any server-specific required env var validation (returns error when missing)
+
+Use helper functions `clearEnv(t)` (unsets all relevant env vars) and `writeEnvFile(t, content)` (creates a temp `.env` file).
+
 ### 5. Create `cmd/main.go`
 
 ```go
@@ -162,9 +173,11 @@ func main() {
     opts := []mcpserver.Option{
         mcpserver.WithTools(mcpserver.RegisterTool(tool)),
     }
+    // Option 1: Static API key auth — only if MCP_API_KEY is set
     if env.APIKey != "" {
         opts = append(opts, mcpserver.WithAPIKey(env.APIKey))
     }
+    // Option 2: OAuth/JWKS auth — only if MCP_OAUTH_AUTHORIZATION_SERVER is set
     if env.OAuthAuthorizationServer != "" {
         opts = append(opts, mcpserver.WithOAuth(&mcpserver.OAuthConfig{
             AuthorizationServerURL: env.OAuthAuthorizationServer,
@@ -176,6 +189,7 @@ func main() {
             }),
         }))
     }
+    // If neither is set, the server runs without authentication.
 
     app := mcpserver.NewApp("<server-name>-mcp", "1.0.0", opts...)
     app.Run()
@@ -199,7 +213,26 @@ Copy from `mcp-playground/Dockerfile` and adjust the module name.
 - **No cross-dependencies between MCP servers** — each server is fully independent.
 - **Tools are internal** to each server — they are NOT importable by other modules.
 - `main.go` must stay thin: load config, create tools, wire app, run.
-- Auth options are conditional: only add `WithAPIKey` / `WithOAuth` when the env vars are set.
+
+**Authentication in `main.go`**: Both options below are independent and opt-in. Only add each option when its condition is met:
+
+| # | Option | Add it when | Effect |
+|---|--------|-------------|--------|
+| 1 | `mcpserver.WithAPIKey(env.APIKey)` | `env.APIKey != ""` | Enables static API key authentication |
+| 2 | `mcpserver.WithOAuth(&mcpserver.OAuthConfig{...})` | `env.OAuthAuthorizationServer != ""` | Enables OAuth/JWKS token authentication |
+| — | *(neither)* | Both vars are empty | Server runs without authentication |
+
+- **README.md** must include an "Authentication" section linking to the shared documentation:
+  ```markdown
+  ## Authentication
+
+  This server supports **X-API-Key** and **OAuth 2.0** authentication.  
+  See [docs/mcp-server-authentication.md](../docs/mcp-server-authentication.md) for details.
+  ```
+- **README.md** must also include:
+  - A **Tools** section listing each tool with its name, description, input parameters, and output format.
+  - A **Prompts** section listing each prompt (if the server defines any) with its name, description, and arguments.
+  - A **Makefile commands** section listing the available `make` targets (build, run, test, lint, etc.).
 
 ### 8. Create prompts (optional)
 

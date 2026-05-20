@@ -1,4 +1,4 @@
-APP_NAME     := mcp-playground
+APP_NAME     := mcp-ign-nav
 BINARY       := bin/$(APP_NAME)
 CMD          := ./cmd
 VERSION      := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -58,5 +58,5 @@ clean: ## Remove build artifacts
 	rm -rf bin coverage.out
 
 help: ## Show help
-	@$(ECHO) "$(COLOR_BOLD)mcp-playground$(COLOR_RESET)"
+	@$(ECHO) "$(COLOR_BOLD)$(APP_NAME)$(COLOR_RESET)"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(COLOR_BLUE)%-20s$(COLOR_RESET) %s\n", $$1, $$2}'

@@ -1,0 +1,18 @@
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /src
+COPY go.work ./
+COPY talk-libs/ ./talk-libs/
+COPY mcp-ign-nav/ ./mcp-ign-nav/
+
+RUN cd mcp-ign-nav && go mod download
+RUN cd mcp-ign-nav && CGO_ENABLED=0 go build -o /bin/mcp-ign-nav ./cmd
+
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /bin/mcp-ign-nav /usr/local/bin/mcp-ign-nav
+
+EXPOSE 8080
+
+ENTRYPOINT ["mcp-ign-nav", "--transport", "http", "--addr", "0.0.0.0:8080"]

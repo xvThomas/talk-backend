@@ -5,7 +5,7 @@ VERSION      := $(shell git describe --tags --always --dirty 2>/dev/null || echo
 LDFLAGS      := -ldflags "-X github.com/xvThomas/LLMClientWrapper/talk-libs/version.Version=$(VERSION)"
 DOCKER_IMAGE := $(APP_NAME)
 
-.PHONY: all build run dev test cover vet clean dockerize help
+.PHONY: all build run dev test cover vet lint clean dockerize help
 
 COLOR_RESET  = \033[0m
 COLOR_BOLD   = \033[1m
@@ -43,6 +43,11 @@ cover: ## Run tests with coverage
 
 vet: ## Run go vet
 	go vet ./...
+
+lint: ## Run golangci-lint
+	@$(ECHO) "$(COLOR_YELLOW)Running linter...$(COLOR_RESET)"
+	golangci-lint run ./...
+	@$(ECHO) "$(COLOR_GREEN)✓ Lint passed$(COLOR_RESET)"
 
 dockerize: ## Build the Docker image
 	@$(ECHO) "$(COLOR_YELLOW)Building Docker image $(DOCKER_IMAGE)...$(COLOR_RESET)"
