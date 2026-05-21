@@ -145,12 +145,7 @@ func (t *RouteTool) Call(ctx context.Context, input RouteToolInput) (RouteToolOu
 
 	portions := make([]RoutePortion, 0, len(result.Portions))
 	for _, p := range result.Portions {
-		portions = append(portions, RoutePortion{
-			Start:    p.Start,
-			End:      p.End,
-			Distance: p.Distance,
-			Duration: p.Duration,
-		})
+		portions = append(portions, RoutePortion(p))
 	}
 
 	var bbox [4]float64

@@ -1,4 +1,4 @@
-MODULES := talk-libs talk mcp-owm mcp-playground
+MODULES := talk-libs talk mcp-playground mcp-owm mcp-ign-nav
 
 .PHONY: all test cover vet lint clean help $(MODULES)
 
@@ -7,6 +7,7 @@ COLOR_BOLD   = \033[1m
 COLOR_GREEN  = \033[32m
 COLOR_YELLOW = \033[33m
 COLOR_BLUE   = \033[34m
+CHECK        = [ok]
 
 ECHO = printf '%b\n'
 
@@ -18,21 +19,21 @@ test: ## Run tests for all modules
 	@for mod in $(MODULES); do \
 		$(ECHO) "$(COLOR_YELLOW)Testing $$mod...$(COLOR_RESET)"; \
 		(cd $$mod && go test ./...) || exit 1; \
-		$(ECHO) "$(COLOR_GREEN)✓ $$mod tests passed$(COLOR_RESET)"; \
+		$(ECHO) "$(COLOR_GREEN)$(CHECK) $$mod tests passed$(COLOR_RESET)"; \
 	done
 
 cover: ## Run tests with coverage for all modules
 	@for mod in $(MODULES); do \
 		$(ECHO) "$(COLOR_YELLOW)Coverage for $$mod...$(COLOR_RESET)"; \
 		(cd $$mod && go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out) || exit 1; \
-		$(ECHO) "$(COLOR_GREEN)✓ $$mod coverage done$(COLOR_RESET)"; \
+		$(ECHO) "$(COLOR_GREEN)$(CHECK) $$mod coverage done$(COLOR_RESET)"; \
 	done
 
 cover-html: ## Generate and open HTML coverage reports
 	@for mod in $(MODULES); do \
 		$(ECHO) "$(COLOR_YELLOW)Coverage HTML for $$mod...$(COLOR_RESET)"; \
 		(cd $$mod && go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out -o coverage.html) || exit 1; \
-		$(ECHO) "$(COLOR_GREEN)✓ $$mod coverage.html generated$(COLOR_RESET)"; \
+		$(ECHO) "$(COLOR_GREEN)$(CHECK) $$mod coverage.html generated$(COLOR_RESET)"; \
 	done
 	@$(ECHO) "$(COLOR_BOLD)Reports:$(COLOR_RESET)"
 	@for mod in $(MODULES); do \
@@ -43,14 +44,14 @@ vet: ## Run go vet for all modules
 	@for mod in $(MODULES); do \
 		$(ECHO) "$(COLOR_YELLOW)Vetting $$mod...$(COLOR_RESET)"; \
 		(cd $$mod && go vet ./...) || exit 1; \
-		$(ECHO) "$(COLOR_GREEN)✓ $$mod vet passed$(COLOR_RESET)"; \
+		$(ECHO) "$(COLOR_GREEN)$(CHECK) $$mod vet passed$(COLOR_RESET)"; \
 	done
 
 lint: ## Run golangci-lint for all modules
 	@for mod in $(MODULES); do \
 		$(ECHO) "$(COLOR_YELLOW)Linting $$mod...$(COLOR_RESET)"; \
 		(cd $$mod && golangci-lint run --timeout=5m) || exit 1; \
-		$(ECHO) "$(COLOR_GREEN)✓ $$mod lint passed$(COLOR_RESET)"; \
+		$(ECHO) "$(COLOR_GREEN)$(CHECK) $$mod lint passed$(COLOR_RESET)"; \
 	done
 
 build: ## Build all binaries
@@ -62,7 +63,7 @@ clean: ## Remove build artifacts from all modules
 	@for mod in $(MODULES); do \
 		rm -f $$mod/coverage.out $$mod/bin/*; \
 	done
-	@$(ECHO) "$(COLOR_GREEN)✓ Clean complete$(COLOR_RESET)"
+	@$(ECHO) "$(COLOR_GREEN)$(CHECK) Clean complete$(COLOR_RESET)"
 
 help: ## Show help
 	@$(ECHO) "$(COLOR_BOLD)Talks monorepo$(COLOR_RESET)"

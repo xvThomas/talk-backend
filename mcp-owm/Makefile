@@ -12,6 +12,7 @@ COLOR_BOLD   = \033[1m
 COLOR_GREEN  = \033[32m
 COLOR_YELLOW = \033[33m
 COLOR_BLUE   = \033[34m
+CHECK        = [ok]
 
 ECHO = printf '%b\n'
 
@@ -22,7 +23,7 @@ all: vet test build ## Run vet, test and build
 build: ## Build the binary
 	@$(ECHO) "$(COLOR_YELLOW)Building $(APP_NAME)...$(COLOR_RESET)"
 	go build $(LDFLAGS) -o $(BINARY) $(CMD)
-	@$(ECHO) "$(COLOR_GREEN)✓ Build successful: $(BINARY)$(COLOR_RESET)"
+	@$(ECHO) "$(COLOR_GREEN)$(CHECK) Build successful: $(BINARY)$(COLOR_RESET)"
 
 run: ## Run the server (TRANSPORT=http, ADDR=localhost:8080)
 	go run $(LDFLAGS) $(CMD) --transport $(or $(TRANSPORT),http) --addr $(or $(ADDR),localhost:8080)
@@ -33,13 +34,13 @@ dev: ## Run the server with hot reload (air) in http mode
 test: ## Run tests
 	@$(ECHO) "$(COLOR_YELLOW)Running tests...$(COLOR_RESET)"
 	go test ./...
-	@$(ECHO) "$(COLOR_GREEN)✓ Tests passed$(COLOR_RESET)"
+	@$(ECHO) "$(COLOR_GREEN)$(CHECK) Tests passed$(COLOR_RESET)"
 
 cover: ## Run tests with coverage
 	@$(ECHO) "$(COLOR_YELLOW)Running tests with coverage...$(COLOR_RESET)"
 	go test -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out
-	@$(ECHO) "$(COLOR_GREEN)✓ Coverage done$(COLOR_RESET)"
+	@$(ECHO) "$(COLOR_GREEN)$(CHECK) Coverage done$(COLOR_RESET)"
 
 vet: ## Run go vet
 	go vet ./...
@@ -47,12 +48,12 @@ vet: ## Run go vet
 lint: ## Run golangci-lint
 	@$(ECHO) "$(COLOR_YELLOW)Running linter...$(COLOR_RESET)"
 	golangci-lint run ./...
-	@$(ECHO) "$(COLOR_GREEN)✓ Lint passed$(COLOR_RESET)"
+	@$(ECHO) "$(COLOR_GREEN)$(CHECK) Lint passed$(COLOR_RESET)"
 
 dockerize: ## Build the Docker image
 	@$(ECHO) "$(COLOR_YELLOW)Building Docker image $(DOCKER_IMAGE)...$(COLOR_RESET)"
 	docker build -t $(DOCKER_IMAGE) -f Dockerfile ..
-	@$(ECHO) "$(COLOR_GREEN)✓ Docker image built: $(DOCKER_IMAGE)$(COLOR_RESET)"
+	@$(ECHO) "$(COLOR_GREEN)$(CHECK) Docker image built: $(DOCKER_IMAGE)$(COLOR_RESET)"
 
 clean: ## Remove build artifacts
 	rm -rf bin coverage.out
