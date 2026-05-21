@@ -20,6 +20,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	app := buildApp(env)
+	app.Run()
+}
+
+// buildApp creates the MCP server application from the given configuration.
+func buildApp(env *config.ServerEnv) *mcpserver.App {
 	// Shared rate limiter for IGN Géoplateforme endpoints (50 req/s).
 	ignLimiter := rate.NewLimiter(rate.Limit(50), 50)
 
@@ -60,6 +66,5 @@ func main() {
 		opts = append(opts, mcpserver.WithOAuth(oauthCfg))
 	}
 
-	app := mcpserver.NewApp("ign-nav-mcp", version.Version, opts...)
-	app.Run()
+	return mcpserver.NewApp("ign-nav-mcp", version.Version, opts...)
 }

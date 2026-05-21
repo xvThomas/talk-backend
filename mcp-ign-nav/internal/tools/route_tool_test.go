@@ -239,3 +239,77 @@ func TestRouteTool_Call_Defaults(t *testing.T) {
 		t.Errorf("expected default optimization 'fastest', got %q", receivedReq.Optimization)
 	}
 }
+
+func TestRouteTool_Call_AvoidHighways(t *testing.T) {
+	var receivedReq routeRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &receivedReq)
+
+		resp := routeAPIResponse{
+			Start: "2.337325,48.84932", End: "2.367842,48.85278",
+			Profile: "car", Optimization: "fastest",
+			Distance: 3000, Duration: 900, Bbox: []float64{0, 0, 1, 1},
+			Portions: []routeAPIPortion{{Start: "a", End: "b", Distance: 3000, Duration: 900}},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	tool := newRouteToolWithBaseURL(srv.URL, srv.Client(), false)
+	_, err := tool.Call(context.Background(), RouteToolInput{
+		Start:         "2.337306,48.849319",
+		End:           "2.367776,48.852891",
+		AvoidHighways: "true",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(receivedReq.Constraints) != 1 {
+		t.Fatalf("expected 1 constraint, got %d", len(receivedReq.Constraints))
+	}
+	c := receivedReq.Constraints[0]
+	if c.ConstraintType != "banned" {
+		t.Errorf("expected constraintType 'banned', got %q", c.ConstraintType)
+	}
+	if c.Key != "wayType" {
+		t.Errorf("expected key 'wayType', got %q", c.Key)
+	}
+	if c.Operator != "=" {
+		t.Errorf("expected operator '=', got %q", c.Operator)
+	}
+	if c.Value != "autoroute" {
+		t.Errorf("expected value 'autoroute', got %q", c.Value)
+	}
+}
+
+func TestRouteTool_Call_NoAvoidHighways(t *testing.T) {
+	var receivedReq routeRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &receivedReq)
+
+		resp := routeAPIResponse{
+			Start: "2.337325,48.84932", End: "2.367842,48.85278",
+			Profile: "car", Optimization: "fastest",
+			Distance: 100, Duration: 50, Bbox: []float64{0, 0, 1, 1},
+			Portions: []routeAPIPortion{{Start: "a", End: "b", Distance: 100, Duration: 50}},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	tool := newRouteToolWithBaseURL(srv.URL, srv.Client(), false)
+	_, err := tool.Call(context.Background(), RouteToolInput{
+		Start: "2.337306,48.849319",
+		End:   "2.367776,48.852891",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(receivedReq.Constraints) != 0 {
+		t.Errorf("expected no constraints, got %d", len(receivedReq.Constraints))
+	}
+}

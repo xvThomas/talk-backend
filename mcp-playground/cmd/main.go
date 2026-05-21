@@ -20,6 +20,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	app := buildApp(env)
+	app.Run()
+}
+
+// buildApp creates the MCP server application from the given configuration.
+func buildApp(env *config.ServerEnv) *mcpserver.App {
 	sumTool := tools.NewSumTool()
 
 	opts := []mcpserver.Option{
@@ -49,6 +55,5 @@ func main() {
 		opts = append(opts, mcpserver.WithOAuth(oauthCfg))
 	}
 
-	app := mcpserver.NewApp("playground-mcp", version.Version, opts...)
-	app.Run()
+	return mcpserver.NewApp("playground-mcp", version.Version, opts...)
 }

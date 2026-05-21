@@ -42,7 +42,7 @@ type GeocodingResult struct {
 
 // GeocodingToolOutput is the typed output for the forward geocoding tool.
 type GeocodingToolOutput struct {
-	Results []GeocodingResult `json:"results" description:"List of matching locations"`
+	Results []GeocodingResult `json:"results" description:"List of matching locations of"`
 }
 
 // GeocodingTool implements mcpserver.MCPTool for forward geocoding via the IGN Géoplateforme API.
