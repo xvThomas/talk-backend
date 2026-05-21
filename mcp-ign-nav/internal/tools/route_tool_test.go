@@ -50,6 +50,9 @@ func TestRouteTool_Call_Success(t *testing.T) {
 		if req.Optimization != "fastest" {
 			t.Errorf("unexpected optimization: %q", req.Optimization)
 		}
+		if req.GetSteps != "true" {
+			t.Errorf("expected getSteps 'true', got %q", req.GetSteps)
+		}
 
 		resp := routeAPIResponse{
 			Start:        "2.337325,48.84932",
@@ -65,6 +68,20 @@ func TestRouteTool_Call_Success(t *testing.T) {
 					End:      "2.367842,48.85278",
 					Distance: 2562.9,
 					Duration: 581.1,
+					Steps: []routeAPIStep{
+						{
+							Distance:    2.5,
+							Duration:    0.3,
+							Instruction: routeAPIInstruction{Type: "depart"},
+							Attributes:  routeAPIAttributes{Name: routeAPIName{NomGauche: "R DE TOURNON"}},
+						},
+						{
+							Distance:    106.8,
+							Duration:    30.4,
+							Instruction: routeAPIInstruction{Type: "turn", Modifier: "left"},
+							Attributes:  routeAPIAttributes{Name: routeAPIName{NomGauche: "R DE VAUGIRARD", CpxNumero: "D952", CpxToponyme: "Route Nationale"}},
+						},
+					},
 				},
 			},
 		}
@@ -98,6 +115,24 @@ func TestRouteTool_Call_Success(t *testing.T) {
 	}
 	if result.Portions[0].Distance != 2562.9 {
 		t.Errorf("unexpected portion distance: %f", result.Portions[0].Distance)
+	}
+	if len(result.Portions[0].Steps) != 2 {
+		t.Fatalf("expected 2 steps, got %d", len(result.Portions[0].Steps))
+	}
+	if result.Portions[0].Steps[0].Instruction != "depart" {
+		t.Errorf("unexpected step instruction: %q", result.Portions[0].Steps[0].Instruction)
+	}
+	if result.Portions[0].Steps[0].Name != "R DE TOURNON" {
+		t.Errorf("unexpected step name: %q", result.Portions[0].Steps[0].Name)
+	}
+	if result.Portions[0].Steps[1].Modifier != "left" {
+		t.Errorf("unexpected step modifier: %q", result.Portions[0].Steps[1].Modifier)
+	}
+	if result.Portions[0].Steps[1].RoadNumber != "D952" {
+		t.Errorf("unexpected step road number: %q", result.Portions[0].Steps[1].RoadNumber)
+	}
+	if result.Portions[0].Steps[1].Toponyme != "Route Nationale" {
+		t.Errorf("unexpected step toponyme: %q", result.Portions[0].Steps[1].Toponyme)
 	}
 }
 

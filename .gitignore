@@ -14,3 +14,4 @@ coverage.html
 #misc
 tmp/
 .vscode/mcp.json
+.trash
