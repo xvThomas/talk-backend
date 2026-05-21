@@ -245,6 +245,9 @@ func (a *App) runHTTP(addr string) {
 		}
 
 		logArgs := []any{"method", r.Method, "path", r.URL.Path,
+			"client_ip", clientIP(r),
+			"host", r.Host,
+			"user_agent", r.Header.Get("User-Agent"),
 			"bearer", r.Header.Get("Authorization") != "",
 			"apiKey", r.Header.Get("X-API-Key") != ""}
 		if rpcMethod != "" {
@@ -434,4 +437,19 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 		r.status = http.StatusOK
 	}
 	return r.ResponseWriter.Write(b)
+}
+
+// clientIP returns the best-effort client IP address from the request,
+// checking proxy headers before falling back to RemoteAddr.
+func clientIP(r *http.Request) string {
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+		if i := strings.IndexByte(fwd, ','); i > 0 {
+			return strings.TrimSpace(fwd[:i])
+		}
+		return fwd
+	}
+	if ip := r.Header.Get("X-Real-Ip"); ip != "" {
+		return ip
+	}
+	return r.RemoteAddr
 }
