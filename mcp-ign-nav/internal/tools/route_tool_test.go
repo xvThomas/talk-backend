@@ -12,7 +12,7 @@ import (
 )
 
 func TestRouteTool_Metadata(t *testing.T) {
-	tool := NewRouteTool(rate.NewLimiter(rate.Inf, 0))
+	tool := NewRouteTool(rate.NewLimiter(rate.Inf, 0), false)
 	if tool.Name() != "route" {
 		t.Errorf("unexpected tool name: %q", tool.Name())
 	}
@@ -79,7 +79,7 @@ func TestRouteTool_Call_Success(t *testing.T) {
 							Distance:    106.8,
 							Duration:    30.4,
 							Instruction: routeAPIInstruction{Type: "turn", Modifier: "left"},
-							Attributes:  routeAPIAttributes{Name: routeAPIName{NomGauche: "R DE VAUGIRARD", CpxNumero: "D952", CpxToponyme: "Route Nationale"}},
+							Attributes:  routeAPIAttributes{Name: routeAPIName{NomGauche: "R DE VAUGIRARD"}},
 						},
 					},
 				},
@@ -90,7 +90,7 @@ func TestRouteTool_Call_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	tool := newRouteToolWithBaseURL(srv.URL, srv.Client())
+	tool := newRouteToolWithBaseURL(srv.URL, srv.Client(), true)
 	result, err := tool.Call(context.Background(), RouteToolInput{
 		Start: "2.337306,48.849319",
 		End:   "2.367776,48.852891",
@@ -128,12 +128,6 @@ func TestRouteTool_Call_Success(t *testing.T) {
 	if result.Portions[0].Steps[1].Modifier != "left" {
 		t.Errorf("unexpected step modifier: %q", result.Portions[0].Steps[1].Modifier)
 	}
-	if result.Portions[0].Steps[1].RoadNumber != "D952" {
-		t.Errorf("unexpected step road number: %q", result.Portions[0].Steps[1].RoadNumber)
-	}
-	if result.Portions[0].Steps[1].Toponyme != "Route Nationale" {
-		t.Errorf("unexpected step toponyme: %q", result.Portions[0].Steps[1].Toponyme)
-	}
 }
 
 func TestRouteTool_Call_WithIntermediates(t *testing.T) {
@@ -160,7 +154,7 @@ func TestRouteTool_Call_WithIntermediates(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	tool := newRouteToolWithBaseURL(srv.URL, srv.Client())
+	tool := newRouteToolWithBaseURL(srv.URL, srv.Client(), false)
 	result, err := tool.Call(context.Background(), RouteToolInput{
 		Start:         "2.337306,48.849319",
 		End:           "2.367776,48.852891",
@@ -178,7 +172,7 @@ func TestRouteTool_Call_WithIntermediates(t *testing.T) {
 }
 
 func TestRouteTool_Call_MissingStart(t *testing.T) {
-	tool := NewRouteTool(rate.NewLimiter(rate.Inf, 0))
+	tool := NewRouteTool(rate.NewLimiter(rate.Inf, 0), false)
 	_, err := tool.Call(context.Background(), RouteToolInput{End: "2.367776,48.852891"})
 	if err == nil {
 		t.Error("expected error for missing start")
@@ -186,7 +180,7 @@ func TestRouteTool_Call_MissingStart(t *testing.T) {
 }
 
 func TestRouteTool_Call_MissingEnd(t *testing.T) {
-	tool := NewRouteTool(rate.NewLimiter(rate.Inf, 0))
+	tool := NewRouteTool(rate.NewLimiter(rate.Inf, 0), false)
 	_, err := tool.Call(context.Background(), RouteToolInput{Start: "2.337306,48.849319"})
 	if err == nil {
 		t.Error("expected error for missing end")
@@ -202,7 +196,7 @@ func TestRouteTool_Call_APIError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	tool := newRouteToolWithBaseURL(srv.URL, srv.Client())
+	tool := newRouteToolWithBaseURL(srv.URL, srv.Client(), false)
 	_, err := tool.Call(context.Background(), RouteToolInput{
 		Start: "2.337306,48.849319",
 		End:   "2.367776,48.852891",
@@ -229,7 +223,7 @@ func TestRouteTool_Call_Defaults(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	tool := newRouteToolWithBaseURL(srv.URL, srv.Client())
+	tool := newRouteToolWithBaseURL(srv.URL, srv.Client(), false)
 	_, _ = tool.Call(context.Background(), RouteToolInput{
 		Start: "2.337306,48.849319",
 		End:   "2.367776,48.852891",

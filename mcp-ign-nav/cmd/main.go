@@ -28,7 +28,7 @@ func main() {
 
 	reverseGeocodeTool := tools.NewReverseGeocodingTool(ignLimiter)
 	geocodeTool := tools.NewGeocodingTool(ignLimiter)
-	routeTool := tools.NewRouteTool(navLimiter)
+	routeTool := tools.NewRouteTool(navLimiter, env.GetGeoJSONGeometry)
 
 	opts := []mcpserver.Option{
 		mcpserver.WithTools(

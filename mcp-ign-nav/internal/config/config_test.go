@@ -22,6 +22,22 @@ func TestLoadServerEnv_NoFileNoVars(t *testing.T) {
 	if env.OAuthAuthorizationServer != "" {
 		t.Errorf("expected empty OAuthAuthorizationServer, got %q", env.OAuthAuthorizationServer)
 	}
+	if env.GetGeoJSONGeometry {
+		t.Error("expected GetGeoJSONGeometry to be false by default")
+	}
+}
+
+func TestLoadServerEnv_GetGeoJSONGeometry(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("GET_GEOJSON_GEOMETRY", "true")
+
+	env, err := LoadServerEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !env.GetGeoJSONGeometry {
+		t.Error("expected GetGeoJSONGeometry to be true")
+	}
 }
 
 func TestLoadServerEnv_WithEnvFile(t *testing.T) {
@@ -133,6 +149,7 @@ func clearEnv(t *testing.T) {
 		"X_API_KEY", "BASE_URL",
 		"OAUTH_AUTHORIZATION_SERVER", "OAUTH_AUDIENCE",
 		"OAUTH_SCOPES", "OAUTH_CLIENT_SECRET",
+		"GET_GEOJSON_GEOMETRY",
 	} {
 		t.Setenv(key, "")
 		_ = os.Unsetenv(key)

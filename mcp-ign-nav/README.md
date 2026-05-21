@@ -24,6 +24,47 @@ Each `Coordinate` has:
 
 Returns a list of results, one per input coordinate, each containing matching features with: label, city, postcode, street, housenumber, type, score, and distance.
 
+### `geocode`
+
+Search for a French address or place name and return matching locations with their coordinates.
+
+**Input:**
+
+| Field      | Type      | Required | Description                                                      |
+|------------|-----------|----------|------------------------------------------------------------------|
+| `q`        | `string`  | Yes      | Search text: address, place name, or location to geocode         |
+| `index`    | `string`  | No       | Index to search: `address`, `poi`, or `parcel` (default: `address`) |
+| `limit`    | `int`     | No       | Maximum number of results, 1–50 (default: 5)                     |
+| `postcode` | `string`  | No       | Filter by postal code                                            |
+| `citycode` | `string`  | No       | Filter by INSEE city code                                        |
+| `type`     | `string`  | No       | Filter by type: `housenumber`, `street`, `locality`, or `municipality` |
+| `lon`      | `float64` | No       | Longitude to favor nearby results                                |
+| `lat`      | `float64` | No       | Latitude to favor nearby results                                 |
+
+**Output:**
+
+Returns a list of matching locations, each with: label, city, postcode, street, housenumber, type, score, lon, lat, and context.
+
+### `route`
+
+Calculate a route between two points in France using the IGN Navigation API. Returns distance, duration, turn-by-turn steps, and optionally GeoJSON geometry.
+
+**Input:**
+
+| Field           | Type       | Required | Description                                                              |
+|-----------------|------------|----------|--------------------------------------------------------------------------|
+| `start`         | `string`   | Yes      | Start point as `longitude,latitude` (WGS84)                             |
+| `end`           | `string`   | Yes      | End point as `longitude,latitude` (WGS84)                               |
+| `resource`      | `string`   | No       | Routing resource: `bdtopo-osrm` (default) or `bdtopo-pgr`               |
+| `profile`       | `string`   | No       | Routing profile: `car` (default) or `pedestrian`                         |
+| `optimization`  | `string`   | No       | Optimization: `fastest` (default) or `shortest`                          |
+| `intermediates` | `[]string` | No       | Ordered intermediate waypoints as `longitude,latitude` strings           |
+| `avoidHighways` | `string`   | No       | Set to `true` to avoid highways (autoroutes)                             |
+
+**Output:**
+
+Returns: start, end, profile, optimization, total distance (m), total duration (s), bounding box, route portions with turn-by-turn steps (instruction, modifier, road name, road number, distance, duration), and optionally GeoJSON LineString geometry (when `GET_GEOJSON_GEOMETRY=true`).
+
 ## Configuration
 
 No API key is required — the IGN Géoplateforme geocoding API is freely accessible under the [Licence Ouverte 2.0](https://www.etalab.gouv.fr/licence-ouverte-open-licence).
@@ -37,6 +78,12 @@ Optional environment variables (for MCP authentication, not for the IGN API):
 | `MCP_OAUTH_AUDIENCE`         | Expected JWT audience                |
 | `MCP_OAUTH_SCOPES`           | Comma-separated OAuth scopes         |
 | `MCP_BASE_URL`               | Public base URL of this server       |
+
+Optional environment variables (tool behavior):
+
+| Variable                | Default | Description                                                        |
+|-------------------------|---------|--------------------------------------------------------------------|
+| `GET_GEOJSON_GEOMETRY`  | `false` | When `true`, the route tool returns the full GeoJSON LineString geometry |
 
 ## Build & Run
 

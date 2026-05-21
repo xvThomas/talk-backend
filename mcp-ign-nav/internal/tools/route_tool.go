@@ -65,25 +65,28 @@ type RouteToolOutput struct {
 
 // RouteTool implements mcpserver.MCPTool for route calculation via the IGN Navigation API.
 type RouteTool struct {
-	baseURL string
-	http    *http.Client
-	limiter *rate.Limiter
+	baseURL     string
+	http        *http.Client
+	limiter     *rate.Limiter
+	getGeometry bool
 }
 
 var _ mcpserver.MCPTool[RouteToolInput, RouteToolOutput] = (*RouteTool)(nil)
 
 // NewRouteTool creates a RouteTool using the IGN Navigation API.
-func NewRouteTool(limiter *rate.Limiter) *RouteTool {
+// When getGeometry is true, the route GeoJSON geometry is requested and returned.
+func NewRouteTool(limiter *rate.Limiter, getGeometry bool) *RouteTool {
 	return &RouteTool{
-		baseURL: navigationBaseURL,
-		http:    &http.Client{Timeout: httpClientTimeout},
-		limiter: limiter,
+		baseURL:     navigationBaseURL,
+		http:        &http.Client{Timeout: httpClientTimeout},
+		limiter:     limiter,
+		getGeometry: getGeometry,
 	}
 }
 
 // newRouteToolWithBaseURL creates a RouteTool with a custom base URL (for testing).
-func newRouteToolWithBaseURL(baseURL string, client *http.Client) *RouteTool {
-	return &RouteTool{baseURL: baseURL, http: client, limiter: rate.NewLimiter(rate.Inf, 0)}
+func newRouteToolWithBaseURL(baseURL string, client *http.Client, getGeometry bool) *RouteTool {
+	return &RouteTool{baseURL: baseURL, http: client, limiter: rate.NewLimiter(rate.Inf, 0), getGeometry: getGeometry}
 }
 
 // Name returns the tool name.
@@ -123,8 +126,10 @@ func (t *RouteTool) Call(ctx context.Context, input RouteToolInput) (RouteToolOu
 		Profile:      profile,
 		Optimization: optimization,
 		GetSteps:     "true",
-		GetGeometry:  "true",
 		GetBbox:      "true",
+	}
+	if t.getGeometry {
+		body.GetGeometry = "true"
 	}
 	if len(input.Intermediates) > 0 {
 		body.Intermediates = input.Intermediates
@@ -206,6 +211,11 @@ func (t *RouteTool) Call(ctx context.Context, input RouteToolInput) (RouteToolOu
 		copy(bbox[:], result.Bbox)
 	}
 
+	var geometry *GeoJSONGeometry
+	if t.getGeometry {
+		geometry = result.Geometry
+	}
+
 	return RouteToolOutput{
 		Start:        result.Start,
 		End:          result.End,
@@ -214,7 +224,7 @@ func (t *RouteTool) Call(ctx context.Context, input RouteToolInput) (RouteToolOu
 		Distance:     result.Distance,
 		Duration:     result.Duration,
 		Bbox:         bbox,
-		Geometry:     result.Geometry,
+		Geometry:     geometry,
 		Portions:     portions,
 	}, nil
 }
@@ -235,7 +245,7 @@ type routeRequest struct {
 	Profile       string            `json:"profile"`
 	Optimization  string            `json:"optimization"`
 	GetSteps      string            `json:"getSteps"`
-	GetGeometry   string            `json:"getGeometry"`
+	GetGeometry   string            `json:"getGeometry,omitempty"`
 	GetBbox       string            `json:"getBbox,omitempty"`
 	Intermediates []string          `json:"intermediates,omitempty"`
 	Constraints   []routeConstraint `json:"constraints,omitempty"`
