@@ -2,6 +2,7 @@
     "cSpell.language": "en,fr",
     "cSpell.allowCompoundWords": true,
     "cSpell.words": [
+        "bbox",
         "Errorf",
         "Getenv",
         "godotenv",
