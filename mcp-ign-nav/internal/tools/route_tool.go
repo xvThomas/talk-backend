@@ -26,6 +26,8 @@ type RouteToolInput struct {
 
 // RouteStep represents a single navigation step (turn-by-turn instruction).
 type RouteStep struct {
+	Start       string  `json:"start" description:"Start point of this step as 'longitude,latitude'"`
+	End         string  `json:"end" description:"End point of this step as 'longitude,latitude'"`
 	Distance    float64 `json:"distance" description:"Distance of this step in meters"`
 	Duration    float64 `json:"duration" description:"Duration of this step in seconds"`
 	Instruction string  `json:"instruction" description:"Navigation instruction type (e.g. depart, turn, continue, arrive)"`
@@ -120,13 +122,14 @@ func (t *RouteTool) Call(ctx context.Context, input RouteToolInput) (RouteToolOu
 	}
 
 	body := routeRequest{
-		Start:        input.Start,
-		End:          input.End,
-		Resource:     resource,
-		Profile:      profile,
-		Optimization: optimization,
-		GetSteps:     "true",
-		GetBbox:      "true",
+		Start:          input.Start,
+		End:            input.End,
+		Resource:       resource,
+		Profile:        profile,
+		Optimization:   optimization,
+		GetSteps:       "true",
+		GetBbox:        "true",
+		GeometryFormat: "geojson",
 	}
 	if t.getGeometry {
 		body.GetGeometry = "true"
@@ -187,7 +190,20 @@ func (t *RouteTool) Call(ctx context.Context, input RouteToolInput) (RouteToolOu
 			if name == "" {
 				name = s.Attributes.Name.NomDroite
 			}
+			var stepStart, stepEnd string
+			if s.Geometry != nil && len(s.Geometry.Coordinates) > 0 {
+				first := s.Geometry.Coordinates[0]
+				if len(first) >= 2 {
+					stepStart = fmt.Sprintf("%g,%g", first[0], first[1])
+				}
+				last := s.Geometry.Coordinates[len(s.Geometry.Coordinates)-1]
+				if len(last) >= 2 {
+					stepEnd = fmt.Sprintf("%g,%g", last[0], last[1])
+				}
+			}
 			steps = append(steps, RouteStep{
+				Start:       stepStart,
+				End:         stepEnd,
 				Distance:    s.Distance,
 				Duration:    s.Duration,
 				Instruction: s.Instruction.Type,
@@ -239,16 +255,17 @@ type routeConstraint struct {
 
 // routeRequest is the JSON body sent to the IGN /itineraire endpoint.
 type routeRequest struct {
-	Start         string            `json:"start"`
-	End           string            `json:"end"`
-	Resource      string            `json:"resource"`
-	Profile       string            `json:"profile"`
-	Optimization  string            `json:"optimization"`
-	GetSteps      string            `json:"getSteps"`
-	GetGeometry   string            `json:"getGeometry,omitempty"`
-	GetBbox       string            `json:"getBbox,omitempty"`
-	Intermediates []string          `json:"intermediates,omitempty"`
-	Constraints   []routeConstraint `json:"constraints,omitempty"`
+	Start          string            `json:"start"`
+	End            string            `json:"end"`
+	Resource       string            `json:"resource"`
+	Profile        string            `json:"profile"`
+	Optimization   string            `json:"optimization"`
+	GetSteps       string            `json:"getSteps"`
+	GetGeometry    string            `json:"getGeometry,omitempty"`
+	GeometryFormat string            `json:"geometryFormat,omitempty"`
+	GetBbox        string            `json:"getBbox,omitempty"`
+	Intermediates  []string          `json:"intermediates,omitempty"`
+	Constraints    []routeConstraint `json:"constraints,omitempty"`
 }
 
 // routeAPIResponse is the raw JSON response from the IGN /itineraire endpoint.
@@ -277,6 +294,7 @@ type routeAPIStep struct {
 	Duration    float64             `json:"duration"`
 	Instruction routeAPIInstruction `json:"instruction"`
 	Attributes  routeAPIAttributes  `json:"attributes"`
+	Geometry    *GeoJSONGeometry    `json:"geometry"`
 }
 
 type routeAPIInstruction struct {

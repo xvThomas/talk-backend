@@ -74,12 +74,20 @@ func TestRouteTool_Call_Success(t *testing.T) {
 							Duration:    0.3,
 							Instruction: routeAPIInstruction{Type: "depart"},
 							Attributes:  routeAPIAttributes{Name: routeAPIName{NomGauche: "R DE TOURNON"}},
+							Geometry: &GeoJSONGeometry{
+								Type:        "LineString",
+								Coordinates: [][]float64{{2.337325, 48.84932}, {2.337400, 48.849400}},
+							},
 						},
 						{
 							Distance:    106.8,
 							Duration:    30.4,
 							Instruction: routeAPIInstruction{Type: "turn", Modifier: "left"},
 							Attributes:  routeAPIAttributes{Name: routeAPIName{NomGauche: "R DE VAUGIRARD"}},
+							Geometry: &GeoJSONGeometry{
+								Type:        "LineString",
+								Coordinates: [][]float64{{2.337400, 48.849400}, {2.338500, 48.850100}, {2.339200, 48.850500}},
+							},
 						},
 					},
 				},
@@ -125,8 +133,20 @@ func TestRouteTool_Call_Success(t *testing.T) {
 	if result.Portions[0].Steps[0].Name != "R DE TOURNON" {
 		t.Errorf("unexpected step name: %q", result.Portions[0].Steps[0].Name)
 	}
+	if result.Portions[0].Steps[0].Start != "2.337325,48.84932" {
+		t.Errorf("unexpected step start: %q", result.Portions[0].Steps[0].Start)
+	}
+	if result.Portions[0].Steps[0].End != "2.3374,48.8494" {
+		t.Errorf("unexpected step end: %q", result.Portions[0].Steps[0].End)
+	}
 	if result.Portions[0].Steps[1].Modifier != "left" {
 		t.Errorf("unexpected step modifier: %q", result.Portions[0].Steps[1].Modifier)
+	}
+	if result.Portions[0].Steps[1].Start != "2.3374,48.8494" {
+		t.Errorf("unexpected step 1 start: %q", result.Portions[0].Steps[1].Start)
+	}
+	if result.Portions[0].Steps[1].End != "2.3392,48.8505" {
+		t.Errorf("unexpected step 1 end: %q", result.Portions[0].Steps[1].End)
 	}
 }
 
