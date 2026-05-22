@@ -31,6 +31,14 @@ func buildApp(env *config.ServerEnv) *mcpserver.App {
 	opts := []mcpserver.Option{
 		mcpserver.WithTools(mcpserver.RegisterTool(sumTool)),
 		mcpserver.WithPrompts(mcpserver.RegisterPrompt(prompts.Sum)),
+		mcpserver.WithHTTPSecurity(mcpserver.HTTPSecurityConfig{
+			RateLimit:      env.HTTPRateLimit,
+			RateBurst:      env.HTTPRateBurst,
+			ReadTimeout:    env.HTTPReadTimeout,
+			WriteTimeout:   env.HTTPWriteTimeout,
+			IdleTimeout:    env.HTTPIdleTimeout,
+			TrustedProxies: env.TrustedProxies,
+		}),
 	}
 
 	if env.APIKey != "" {

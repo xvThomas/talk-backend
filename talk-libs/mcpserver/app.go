@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -123,12 +124,13 @@ func WithTools(tools ...ToolRegistrar) Option {
 //	)
 //	app.Run()
 type App struct {
-	name    string
-	version string
-	tools   []ToolRegistrar
-	prompts []PromptRegistrar
-	apiKey  *string      // optional: X-API-Key header authentication
-	oauth   *OAuthConfig // optional: OAuth Bearer token authentication
+	name     string
+	version  string
+	tools    []ToolRegistrar
+	prompts  []PromptRegistrar
+	apiKey   *string             // optional: X-API-Key header authentication
+	oauth    *OAuthConfig        // optional: OAuth Bearer token authentication
+	security *HTTPSecurityConfig // optional: HTTP security settings
 }
 
 // NewApp creates an App configured with the given options.
@@ -227,8 +229,14 @@ func (a *App) runHTTP(addr string) {
 	mux.Handle("/sse", middleware(sseHandler))
 	mux.Handle("/mcp", middleware(streamableHandler))
 
+	// Resolve security settings (use defaults if not configured).
+	sec := a.securityConfig()
+
+	// Build the allowed-path set for the restrictive path filter.
+	allowedPaths := buildAllowedPaths(a.oauth != nil)
+
 	// Wrap the mux with a response-capturing request logger for debugging.
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var rpcMethod string
 		if r.Body != nil && r.Method == http.MethodPost {
 			body, err := io.ReadAll(r.Body)
@@ -260,10 +268,43 @@ func (a *App) runHTTP(addr string) {
 		log.Debug("response sent", "method", r.Method, "path", r.URL.Path, "status", rw.status)
 	})
 
+	// Apply security middleware chain (outermost first):
+	// rate limit → security headers → path filter → handler
+	handler = restrictPathMiddleware(allowedPaths)(handler)
+	handler = securityHeadersMiddleware(handler)
+	ipLimiter := newIPRateLimiter(sec.RateLimit, sec.RateBurst)
+	handler = rateLimitMiddleware(ipLimiter, sec.TrustedProxies)(handler)
+
 	log.Info("HTTP server listening", "addr", addr, "sse", "/sse", "streamable", "/mcp")
-	if err := http.ListenAndServe(addr, handler); err != nil {
+	log.Info("HTTP security", "rate_limit", sec.RateLimit, "rate_burst", sec.RateBurst,
+		"read_timeout", sec.ReadTimeout, "write_timeout", sec.WriteTimeout,
+		"idle_timeout", sec.IdleTimeout, "trusted_proxies", len(sec.TrustedProxies))
+
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      handler,
+		ReadTimeout:  sec.ReadTimeout,
+		WriteTimeout: sec.WriteTimeout,
+		IdleTimeout:  sec.IdleTimeout,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		log.Error("HTTP server failed", "error", err)
 		os.Exit(1)
+	}
+}
+
+// securityConfig returns the effective HTTPSecurityConfig, using defaults for
+// any unset values.
+func (a *App) securityConfig() HTTPSecurityConfig {
+	if a.security != nil {
+		return *a.security
+	}
+	return HTTPSecurityConfig{
+		RateLimit:    50,
+		RateBurst:    50,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 }
 

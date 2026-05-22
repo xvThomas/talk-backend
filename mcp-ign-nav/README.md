@@ -110,3 +110,12 @@ make vet        # Run go vet
 make cover      # Run tests with coverage
 make dev        # Hot reload with air
 ```
+## Authentication
+
+This server supports **X-API-Key** and **OAuth 2.0** authentication.  
+See [docs/mcp-server-authentication.md](../docs/mcp-server-authentication.md) for configuration details.
+
+## Security
+
+This server includes built-in HTTP security hardening (rate limiting, path filtering, security headers, timeouts).  
+See [docs/mcp-server-secured.md](../docs/mcp-server-secured.md) for configuration details.

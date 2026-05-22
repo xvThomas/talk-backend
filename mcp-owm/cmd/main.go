@@ -46,6 +46,14 @@ func buildApp(env *config.ServerEnv) *mcpserver.App {
 			mcpserver.RegisterPrompt(prompts.CurrentAir),
 			mcpserver.RegisterPrompt(prompts.ForecastAir),
 		),
+		mcpserver.WithHTTPSecurity(mcpserver.HTTPSecurityConfig{
+			RateLimit:      env.HTTPRateLimit,
+			RateBurst:      env.HTTPRateBurst,
+			ReadTimeout:    env.HTTPReadTimeout,
+			WriteTimeout:   env.HTTPWriteTimeout,
+			IdleTimeout:    env.HTTPIdleTimeout,
+			TrustedProxies: env.TrustedProxies,
+		}),
 	}
 
 	if env.FreePlan {
