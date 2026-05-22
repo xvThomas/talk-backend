@@ -15,8 +15,7 @@ import (
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/config"
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/llm/router"
-	inmemorystore "github.com/xvThomas/LLMClientWrapper/talk/internal/memory/inmemory"
-	langfusestore "github.com/xvThomas/LLMClientWrapper/talk/internal/memory/langfuse"
+	sqlitestore "github.com/xvThomas/LLMClientWrapper/talk/internal/memory/sqlite"
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/prompt"
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/usage"
 
@@ -92,16 +91,12 @@ func run(ctx context.Context, modelAlias, systemFile string) error {
 	sessionID := domain.GenerateSessionID()
 	const userID = "anonymous"
 
-	var store domain.MessageStore
-	if cfg.LangfuseSecretKey != "" && cfg.LangfusePublicKey != "" {
-		store = langfusestore.NewLangfuseStore(sessionID, userID, langfusestore.Config{
-			PublicKey: cfg.LangfusePublicKey,
-			SecretKey: cfg.LangfuseSecretKey,
-			BaseURL:   cfg.LangfuseBaseURL,
-		})
-	} else {
-		store = inmemorystore.NewInMemoryStore(sessionID, userID)
+	dbPath := storeDBPath()
+	store, err := sqlitestore.NewStore(dbPath, sessionID, userID)
+	if err != nil {
+		return fmt.Errorf("opening session store: %w", err)
 	}
+	defer func() { _ = store.Close() }()
 
 	// Create usage reporters based on configuration
 	var reporters []domain.UsageReporter
@@ -134,12 +129,13 @@ func run(ctx context.Context, modelAlias, systemFile string) error {
 	fmt.Print(cyan(bold+"Session started."+reset) + faint(" "+version.Version) + `
 ` +
 		faint(" Commands:\n") +
-		faint("  /model   — switch models\n") +
-		faint("  /memory  — show current session history\n") +
-		faint("  /session — switch conversation session\n") +
-		faint("  /prompt  — show system prompt\n") +
-		faint("  /tools   — list available tools\n") +
-		faint("  /q       — quit\n"))
+		faint("  /model    — switch models\n") +
+		faint("  /memory   — show current session history\n") +
+		faint("  /sessions — list all sessions\n") +
+		faint("  /session  — new session or switch (usage: /session [id])\n") +
+		faint("  /prompt   — show system prompt\n") +
+		faint("  /tools    — list available tools\n") +
+		faint("  /q        — quit\n"))
 	history := NewHistory(historyFilePath())
 	lr := NewLineReader(history)
 	for {
@@ -195,6 +191,15 @@ func historyFilePath() string {
 	return ".talks_history"
 }
 
+func storeDBPath() string {
+	if home, err := os.UserHomeDir(); err == nil {
+		dir := filepath.Join(home, ".talk")
+		_ = os.MkdirAll(dir, 0o700)
+		return filepath.Join(dir, "talk.db")
+	}
+	return "talk.db"
+}
+
 func handleSlashCommand(ctx context.Context, input string, r *router.Router, pp domain.PromptProvider, store domain.MessageStore, manager *domain.ConversationManager, currentModel *string, lr *LineReader, tools []domain.Tool) {
 	cmd := strings.Fields(input)[0]
 	switch cmd {
@@ -202,8 +207,11 @@ func handleSlashCommand(ctx context.Context, input string, r *router.Router, pp 
 		cmdModel(r, manager, currentModel, lr)
 	case "/memory":
 		cmdMemory(ctx, store)
+	case "/sessions":
+		cmdSessions(ctx, store)
 	case "/session":
-		cmdSession(ctx, store, lr)
+		args := strings.TrimSpace(strings.TrimPrefix(input, "/session"))
+		cmdSession(ctx, store, lr, args)
 	case "/prompt":
 		cmdPrompt(ctx, pp)
 	case "/tools":
@@ -211,8 +219,8 @@ func handleSlashCommand(ctx context.Context, input string, r *router.Router, pp 
 	case "/q":
 		cmdQuit()
 	default:
-		fmt.Printf("Unknown command %s. Available: %s, %s, %s, %s, %s, %s\n",
-			red(cmd), yellow("/model"), yellow("/memory"), yellow("/session"), yellow("/prompt"), yellow("/tools"), yellow("/q"))
+		fmt.Printf("Unknown command %s. Available: %s, %s, %s, %s, %s, %s, %s\n",
+			red(cmd), yellow("/model"), yellow("/memory"), yellow("/sessions"), yellow("/session"), yellow("/prompt"), yellow("/tools"), yellow("/q"))
 	}
 }
 
@@ -295,7 +303,21 @@ func cmdMemory(ctx context.Context, store domain.MessageStore) {
 		fmt.Println(faint("(no history for current session)"))
 		return
 	}
-	fmt.Printf("\n%s  %s\n", emphasize("Session history:"), faint(store.SessionID()))
+	// Resolve session title
+	title := ""
+	if sessions, err := sb.ListSessions(ctx, store.UserID()); err == nil {
+		for _, s := range sessions {
+			if s.ID == store.SessionID() {
+				title = s.Title
+				break
+			}
+		}
+	}
+	header := emphasize("Session history:")
+	if title != "" {
+		header += "  " + cyan(title)
+	}
+	fmt.Printf("\n%s  %s\n", header, faint(shortID(store.SessionID())))
 	for i, t := range turns {
 		turnIDStr := ""
 		if t.TurnID != "" {
@@ -313,12 +335,75 @@ func cmdMemory(ctx context.Context, store domain.MessageStore) {
 	}
 }
 
-func cmdSession(ctx context.Context, store domain.MessageStore, lr *LineReader) {
+func cmdSessions(ctx context.Context, store domain.MessageStore) {
+	sb, ok := store.(domain.SessionBrowser)
+	if !ok {
+		fmt.Println(faint("(sessions not available)"))
+		return
+	}
+	sessions, err := sb.ListSessions(ctx, store.UserID())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, red("Error: ")+err.Error())
+		return
+	}
+	if len(sessions) == 0 {
+		fmt.Println(faint("(no sessions)"))
+		return
+	}
+	fmt.Printf("\n%s\n", emphasize("Sessions:"))
+	for _, s := range sessions {
+		marker := ""
+		if s.ID == store.SessionID() {
+			marker = " " + green("← current")
+		}
+		title := s.Title
+		if title == "" {
+			title = "(untitled)"
+		}
+		fmt.Printf("  %s  %s  %s  %s%s\n",
+			cyan(s.ID),
+			title,
+			faint(s.CreatedAt.Format("2006-01-02 15:04")),
+			faint(fmt.Sprintf("%d turns", s.TurnCount)),
+			marker)
+	}
+	fmt.Println()
+}
+
+func cmdSession(ctx context.Context, store domain.MessageStore, lr *LineReader, args string) {
 	sb, ok := store.(domain.SessionBrowser)
 	if !ok {
 		fmt.Println(faint("(session switching not available)"))
 		return
 	}
+
+	// /session <id> — switch to an existing session by prefix match
+	if args != "" {
+		sessions, err := sb.ListSessions(ctx, store.UserID())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, red("Error: ")+err.Error())
+			return
+		}
+		var match string
+		for _, s := range sessions {
+			if strings.HasPrefix(s.ID, args) {
+				match = s.ID
+				break
+			}
+		}
+		if match == "" {
+			fmt.Println(yellow("No session found matching: ") + faint(args))
+			return
+		}
+		if err := sb.SetSession(ctx, match); err != nil {
+			fmt.Fprintln(os.Stderr, red("Error switching session: ")+err.Error())
+			return
+		}
+		fmt.Printf("Switched to session %s.\n", green(shortID(match)))
+		return
+	}
+
+	// /session — show sessions and offer to create new or switch
 	sessions, err := sb.ListSessions(ctx, store.UserID())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, red("Error: ")+err.Error())
@@ -327,21 +412,35 @@ func cmdSession(ctx context.Context, store domain.MessageStore, lr *LineReader) 
 	fmt.Printf("\n%s  %s\n", emphasize("Sessions:"), faint("user: "+store.UserID()))
 	if len(sessions) == 0 {
 		fmt.Println(faint("  (no past sessions found)"))
-		return
-	}
-	for i, s := range sessions {
-		label := shortID(s.ID)
-		marker := ""
-		if s.ID == store.SessionID() {
-			marker = " " + green("← current")
+	} else {
+		for i, s := range sessions {
+			label := shortID(s.ID)
+			marker := ""
+			if s.ID == store.SessionID() {
+				marker = " " + green("← current")
+			}
+			turns := ""
+			if s.TurnCount > 0 {
+				turns = fmt.Sprintf(" (%d turns)", s.TurnCount)
+			}
+			fmt.Printf("  [%d] %s  %s%s%s\n", i+1, cyan(label), faint(s.CreatedAt.Format("2006-01-02 15:04")), faint(turns), marker)
 		}
-		fmt.Printf("  [%d] %s  %s%s\n", i+1, cyan(label), faint(s.CreatedAt.Format("2006-01-02 15:04")), marker)
 	}
-	choice, err := lr.ReadLine(fmt.Sprintf("Choose [1-%d] (Enter to cancel): ", len(sessions)))
+	choice, err := lr.ReadLine(fmt.Sprintf("Choose [1-%d] or 'new' (Enter to cancel): ", len(sessions)))
 	if err != nil || strings.TrimSpace(choice) == "" {
 		return
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(choice))
+	choice = strings.TrimSpace(choice)
+	if choice == "new" {
+		newID := domain.GenerateSessionID()
+		if err := sb.SetSession(ctx, newID); err != nil {
+			fmt.Fprintln(os.Stderr, red("Error creating session: ")+err.Error())
+			return
+		}
+		fmt.Printf("New session created: %s\n", green(shortID(newID)))
+		return
+	}
+	n, err := strconv.Atoi(choice)
 	if err != nil || n < 1 || n > len(sessions) {
 		fmt.Println(yellow("Invalid choice."))
 		return

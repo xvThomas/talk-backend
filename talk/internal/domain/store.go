@@ -9,6 +9,8 @@ import (
 type SessionSummary struct {
 	// Unique session identifier
 	ID string
+	// Title of the session (typically the first user question)
+	Title string
 	// Timestamp of session creation (or last update)
 	CreatedAt time.Time
 	// Number of turns in the session, may be zero if unavailable

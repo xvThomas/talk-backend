@@ -7,6 +7,7 @@
         "Getenv",
         "godotenv",
         "golangci",
+        "inmemory",
         "itineraire",
         "joho",
         "jwks",
@@ -14,8 +15,11 @@
         "mcpserver",
         "mytool",
         "oauthex",
+        "sess",
+        "sqlitestore",
         "testdata",
-        "tmpl"
+        "tmpl",
+        "unmaterialized"
     ],
     "chat.tools.terminal.autoApprove": {
         "go": true
