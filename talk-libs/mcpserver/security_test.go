@@ -204,6 +204,11 @@ func TestParseTrustedProxies(t *testing.T) {
 		{"172.17.0.1, 10.0.0.0/8", 2},
 		{"invalid", 0},
 		{"172.17.0.1, invalid, 10.0.0.1", 2},
+		{"999.999.999.999/8", 0},        // invalid CIDR
+		{"::1", 1},                      // IPv6 loopback
+		{" , , ", 0},                    // empty entries
+		{"192.168.1.1, 192.168.1.1", 2}, // duplicates are kept
+		{"fe80::1/64", 1},               // IPv6 CIDR
 	}
 
 	for _, tt := range tests {
@@ -211,5 +216,73 @@ func TestParseTrustedProxies(t *testing.T) {
 		if len(nets) != tt.count {
 			t.Errorf("parseTrustedProxies(%q): expected %d nets, got %d", tt.input, tt.count, len(nets))
 		}
+	}
+}
+
+func TestExtractIP_WithPort(t *testing.T) {
+	got := extractIP("192.168.1.1:8080")
+	if got != "192.168.1.1" {
+		t.Errorf("expected 192.168.1.1, got %q", got)
+	}
+}
+
+func TestExtractIP_WithoutPort(t *testing.T) {
+	// When no port is present, SplitHostPort returns an error and extractIP
+	// returns the original string.
+	got := extractIP("192.168.1.1")
+	if got != "192.168.1.1" {
+		t.Errorf("expected 192.168.1.1, got %q", got)
+	}
+}
+
+func TestExtractIP_IPv6WithPort(t *testing.T) {
+	got := extractIP("[::1]:443")
+	if got != "::1" {
+		t.Errorf("expected ::1, got %q", got)
+	}
+}
+
+func TestIsTrustedProxy_ValidIP(t *testing.T) {
+	_, cidr, _ := net.ParseCIDR("10.0.0.0/8")
+	trusted := []net.IPNet{*cidr}
+
+	if !isTrustedProxy("10.1.2.3", trusted) {
+		t.Error("expected 10.1.2.3 to be trusted")
+	}
+}
+
+func TestIsTrustedProxy_NotTrusted(t *testing.T) {
+	_, cidr, _ := net.ParseCIDR("10.0.0.0/8")
+	trusted := []net.IPNet{*cidr}
+
+	if isTrustedProxy("192.168.1.1", trusted) {
+		t.Error("expected 192.168.1.1 to not be trusted")
+	}
+}
+
+func TestIsTrustedProxy_InvalidIP(t *testing.T) {
+	_, cidr, _ := net.ParseCIDR("10.0.0.0/8")
+	trusted := []net.IPNet{*cidr}
+
+	if isTrustedProxy("not-an-ip", trusted) {
+		t.Error("expected invalid IP to not be trusted")
+	}
+}
+
+func TestIsTrustedProxy_EmptyString(t *testing.T) {
+	_, cidr, _ := net.ParseCIDR("10.0.0.0/8")
+	trusted := []net.IPNet{*cidr}
+
+	if isTrustedProxy("", trusted) {
+		t.Error("expected empty string to not be trusted")
+	}
+}
+
+func TestIsTrustedProxy_IPv6(t *testing.T) {
+	_, cidr, _ := net.ParseCIDR("fe80::/10")
+	trusted := []net.IPNet{*cidr}
+
+	if !isTrustedProxy("fe80::1", trusted) {
+		t.Error("expected fe80::1 to be trusted in fe80::/10")
 	}
 }

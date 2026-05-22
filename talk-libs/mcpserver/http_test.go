@@ -1,11 +1,14 @@
 package mcpserver
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/auth"
 )
 
 func TestClientIP_XForwardedFor(t *testing.T) {
@@ -160,5 +163,153 @@ func TestRequestLoggerMiddleware_PreservesBody(t *testing.T) {
 
 	if gotBody != body {
 		t.Errorf("expected handler to receive original body\n got: %q\nwant: %q", gotBody, body)
+	}
+}
+
+// --- Step 7: buildHTTPHandler tests ---
+
+func TestBuildHTTPHandler_AllowedPaths(t *testing.T) {
+	app := NewApp("test", "1.0.0")
+	mux := http.NewServeMux()
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/sse", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := app.buildHTTPHandler("localhost:8080", mux)
+
+	// /mcp should be allowed.
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for /mcp, got %d", rr.Code)
+	}
+
+	// /sse should be allowed.
+	req = httptest.NewRequest(http.MethodGet, "/sse", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for /sse, got %d", rr.Code)
+	}
+}
+
+func TestBuildHTTPHandler_BlocksUnknownPaths(t *testing.T) {
+	app := NewApp("test", "1.0.0")
+	mux := http.NewServeMux()
+	mux.HandleFunc("/secret", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := app.buildHTTPHandler("localhost:8080", mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/secret", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for /secret, got %d", rr.Code)
+	}
+}
+
+func TestBuildHTTPHandler_SecurityHeaders(t *testing.T) {
+	app := NewApp("test", "1.0.0")
+	mux := http.NewServeMux()
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := app.buildHTTPHandler("localhost:8080", mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Error("expected X-Content-Type-Options: nosniff")
+	}
+	if rr.Header().Get("X-Frame-Options") != "DENY" {
+		t.Error("expected X-Frame-Options: DENY")
+	}
+}
+
+func TestBuildHTTPHandler_RateLimiting(t *testing.T) {
+	app := NewApp("test", "1.0.0", WithHTTPSecurity(HTTPSecurityConfig{
+		RateLimit:    1,
+		RateBurst:    1,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := app.buildHTTPHandler("localhost:8080", mux)
+
+	// First request should pass.
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	req.RemoteAddr = "192.168.1.1:5555"
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("first request: expected 200, got %d", rr.Code)
+	}
+
+	// Flood — should eventually get rate limited.
+	rateLimited := false
+	for i := 0; i < 10; i++ {
+		req = httptest.NewRequest(http.MethodGet, "/mcp", nil)
+		req.RemoteAddr = "192.168.1.1:5555"
+		rr = httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code == http.StatusTooManyRequests {
+			rateLimited = true
+			break
+		}
+	}
+	if !rateLimited {
+		t.Error("expected rate limiting to kick in")
+	}
+}
+
+func TestBuildHTTPHandler_OAuthPaths(t *testing.T) {
+	app := NewApp("test", "1.0.0", WithOAuth(&OAuthConfig{
+		AuthorizationServerURL: "https://auth.example.com",
+		Scopes:                 []string{"read"},
+		TokenVerifier: func(_ context.Context, _ string, _ *http.Request) (*auth.TokenInfo, error) {
+			return &auth.TokenInfo{UserID: "u"}, nil
+		},
+	}))
+	mux := http.NewServeMux()
+
+	// Register routes as buildAuthMiddleware + runHTTP would.
+	_ = app.buildAuthMiddleware("localhost:8080", mux)
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/sse", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := app.buildHTTPHandler("localhost:8080", mux)
+
+	// OAuth paths should be allowed when OAuth is configured.
+	for _, path := range []string{"/mcp", "/sse", "/.well-known/oauth-protected-resource"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.RemoteAddr = "127.0.0.1:1234"
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code == http.StatusNotFound {
+			t.Errorf("expected path %q to be allowed with OAuth, got 404", path)
+		}
 	}
 }

@@ -36,21 +36,10 @@ func (a *App) runHTTP(addr string) {
 	mux.Handle("/sse", middleware(sseHandler))
 	mux.Handle("/mcp", middleware(streamableHandler))
 
-	// Resolve security settings (use defaults if not configured).
+	handler := a.buildHTTPHandler(addr, mux)
+
+	// Resolve security settings for server timeouts.
 	sec := a.securityConfig()
-
-	// Build the allowed-path set for the restrictive path filter.
-	allowedPaths := buildAllowedPaths(a.oauth != nil)
-
-	// Wrap the mux with a response-capturing request logger for debugging.
-	handler := requestLoggerMiddleware(mux)
-
-	// Apply security middleware chain (outermost first):
-	// rate limit -> security headers -> path filter -> handler
-	handler = restrictPathMiddleware(allowedPaths)(handler)
-	handler = securityHeadersMiddleware(handler)
-	ipLimiter := newIPRateLimiter(sec.RateLimit, sec.RateBurst)
-	handler = rateLimitMiddleware(ipLimiter, sec.TrustedProxies)(handler)
 
 	log.Info("HTTP server listening", "addr", addr, "sse", "/sse", "streamable", "/mcp")
 	log.Info("HTTP security", "rate_limit", sec.RateLimit, "rate_burst", sec.RateBurst,
@@ -68,6 +57,27 @@ func (a *App) runHTTP(addr string) {
 		log.Error("HTTP server failed", "error", err)
 		os.Exit(1)
 	}
+}
+
+// buildHTTPHandler constructs the full middleware-wrapped HTTP handler chain.
+// Separated from runHTTP for testability.
+func (a *App) buildHTTPHandler(_ string, mux *http.ServeMux) http.Handler {
+	sec := a.securityConfig()
+
+	// Build the allowed-path set for the restrictive path filter.
+	allowedPaths := buildAllowedPaths(a.oauth != nil)
+
+	// Wrap the mux with a response-capturing request logger for debugging.
+	handler := requestLoggerMiddleware(mux)
+
+	// Apply security middleware chain (outermost first):
+	// rate limit -> security headers -> path filter -> handler
+	handler = restrictPathMiddleware(allowedPaths)(handler)
+	handler = securityHeadersMiddleware(handler)
+	ipLimiter := newIPRateLimiter(sec.RateLimit, sec.RateBurst)
+	handler = rateLimitMiddleware(ipLimiter, sec.TrustedProxies)(handler)
+
+	return handler
 }
 
 // securityConfig returns the effective HTTPSecurityConfig, using defaults for

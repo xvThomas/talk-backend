@@ -253,3 +253,170 @@ func TestJWKSCache_Refresh(t *testing.T) {
 		t.Error("cached key modulus does not match")
 	}
 }
+
+func TestJWKSCache_CacheHit(t *testing.T) {
+	key := testRSAKey(t)
+	pub := key.Public().(*rsa.PublicKey)
+	kid := "cache-hit"
+
+	fetchCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/jwks.json", func(w http.ResponseWriter, _ *http.Request) {
+		fetchCount++
+		n := base64.RawURLEncoding.EncodeToString(pub.N.Bytes())
+		e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes())
+		resp := map[string]any{
+			"keys": []map[string]string{
+				{"kty": "RSA", "kid": kid, "use": "sig", "n": n, "e": e},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	cache := &jwksCache{
+		jwksURL:    srv.URL + "/.well-known/jwks.json",
+		httpClient: srv.Client(),
+		ttl:        1 * time.Minute,
+	}
+
+	// First call should fetch.
+	_, err := cache.getKey(context.Background(), kid)
+	if err != nil {
+		t.Fatalf("first getKey: %v", err)
+	}
+	// Second call should use cache — no additional fetch.
+	_, err = cache.getKey(context.Background(), kid)
+	if err != nil {
+		t.Fatalf("second getKey: %v", err)
+	}
+	if fetchCount != 1 {
+		t.Errorf("expected 1 fetch, got %d", fetchCount)
+	}
+}
+
+func TestJWKSCache_RefreshHTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	cache := &jwksCache{
+		jwksURL:    srv.URL + "/.well-known/jwks.json",
+		httpClient: srv.Client(),
+		ttl:        1 * time.Minute,
+	}
+
+	_, err := cache.getKey(context.Background(), "any-kid")
+	if err == nil {
+		t.Error("expected error when JWKS returns 500")
+	}
+}
+
+func TestJWKSCache_RefreshInvalidJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{invalid json`))
+	}))
+	t.Cleanup(srv.Close)
+
+	cache := &jwksCache{
+		jwksURL:    srv.URL + "/.well-known/jwks.json",
+		httpClient: srv.Client(),
+		ttl:        1 * time.Minute,
+	}
+
+	_, err := cache.getKey(context.Background(), "any-kid")
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestJWKSCache_RefreshNoRSAKeys(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"keys":[{"kty":"EC","kid":"ec-1"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	cache := &jwksCache{
+		jwksURL:    srv.URL + "/.well-known/jwks.json",
+		httpClient: srv.Client(),
+		ttl:        1 * time.Minute,
+	}
+
+	_, err := cache.getKey(context.Background(), "ec-1")
+	if err == nil {
+		t.Error("expected error when no RSA keys are present")
+	}
+}
+
+func TestJWKSVerifier_MissingKid(t *testing.T) {
+	key := testRSAKey(t)
+	pub := key.Public().(*rsa.PublicKey)
+
+	srv := serveJWKS(t, "key-1", pub)
+
+	verifier := NewJWKSTokenVerifier(JWKSVerifierConfig{
+		IssuerURL:  srv.URL,
+		HTTPClient: srv.Client(),
+		CacheTTL:   1 * time.Minute,
+	})
+
+	// Sign a token without kid header.
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"iss": srv.URL + "/",
+		"sub": "user-123",
+		"exp": time.Now().Add(1 * time.Hour).Unix(),
+		"iat": time.Now().Unix(),
+	})
+	// Do NOT set token.Header["kid"]
+	signed, err := token.SignedString(key)
+	if err != nil {
+		t.Fatalf("signing token: %v", err)
+	}
+
+	_, err = verifier(context.Background(), signed, httptest.NewRequest(http.MethodGet, "/", nil))
+	if err == nil {
+		t.Error("expected error for token without kid")
+	}
+}
+
+func TestJWKSVerifier_CacheExpiry(t *testing.T) {
+	key := testRSAKey(t)
+	pub := key.Public().(*rsa.PublicKey)
+	kid := "expiry-test"
+
+	fetchCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/jwks.json", func(w http.ResponseWriter, _ *http.Request) {
+		fetchCount++
+		n := base64.RawURLEncoding.EncodeToString(pub.N.Bytes())
+		e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes())
+		resp := map[string]any{
+			"keys": []map[string]string{
+				{"kty": "RSA", "kid": kid, "use": "sig", "n": n, "e": e},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	cache := &jwksCache{
+		jwksURL:    srv.URL + "/.well-known/jwks.json",
+		httpClient: srv.Client(),
+		ttl:        1 * time.Millisecond, // Very short TTL.
+	}
+
+	_, _ = cache.getKey(context.Background(), kid)
+	time.Sleep(5 * time.Millisecond)
+	_, _ = cache.getKey(context.Background(), kid)
+
+	if fetchCount < 2 {
+		t.Errorf("expected at least 2 fetches after TTL expiry, got %d", fetchCount)
+	}
+}
