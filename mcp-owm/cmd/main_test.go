@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/config"
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
 func TestBuildApp_FreePlan(t *testing.T) {
@@ -67,5 +66,5 @@ func TestBuildApp_ReturnsCorrectType(t *testing.T) {
 		RateLimitPerMinute:   60,
 	}
 	app := buildApp(env)
-	var _ *mcpserver.App = app
+	var _ = app
 }

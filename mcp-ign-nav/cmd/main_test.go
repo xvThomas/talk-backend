@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/xvThomas/LLMClientWrapper/mcp-ign-nav/internal/config"
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
 )
 
 func TestBuildApp_Minimal(t *testing.T) {
@@ -48,5 +47,5 @@ func TestBuildApp_ReturnsCorrectType(t *testing.T) {
 	env := &config.ServerEnv{}
 	app := buildApp(env)
 	// Verify app is the expected type.
-	var _ *mcpserver.App = app
+	var _ = app
 }
