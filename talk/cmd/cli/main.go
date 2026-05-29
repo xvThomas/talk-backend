@@ -243,9 +243,11 @@ func cmdMCP(ctx context.Context, args string, mgr *internalmcp.Manager, reg inte
 		cmdMCPAdd(ctx, mgr, reg, lr)
 	case "remove":
 		cmdMCPRemove(ctx, mgr, reg, lr)
+	case "refresh":
+		cmdMCPRefresh(ctx, mgr)
 	default:
-		fmt.Printf("Unknown /mcp subcommand %s. Available: %s, %s, %s\n",
-			red(parts[0]), yellow("list"), yellow("add"), yellow("remove"))
+		fmt.Printf("Unknown /mcp subcommand %s. Available: %s, %s, %s, %s\n",
+			red(parts[0]), yellow("list"), yellow("add"), yellow("remove"), yellow("refresh"))
 	}
 }
 
@@ -397,6 +399,11 @@ func cmdMCPRemove(ctx context.Context, mgr *internalmcp.Manager, reg internalmcp
 	fmt.Printf("Removed %s.\n", green(selected.Name))
 }
 
+func cmdMCPRefresh(ctx context.Context, mgr *internalmcp.Manager) {
+	count := mgr.Refresh(ctx)
+	fmt.Printf("%s %d tools available.\n", green("✓ Tools refreshed:"), count)
+}
+
 func cmdHelp() {
 	fmt.Println(emphasize("Commands:"))
 	fmt.Println(faint("  /help     — show this help"))
@@ -405,7 +412,7 @@ func cmdHelp() {
 	fmt.Println(faint("  /sessions — list all sessions"))
 	fmt.Println(faint("  /session  — new session or switch (usage: /session [id])"))
 	fmt.Println(faint("  /prompt   — show system prompt"))
-	fmt.Println(faint("  /mcp      — manage MCP servers (add, remove, list)"))
+	fmt.Println(faint("  /mcp      — manage MCP servers (add, remove, refresh, list)"))
 	fmt.Println(faint("  /q        — quit"))
 }
 

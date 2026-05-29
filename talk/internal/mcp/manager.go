@@ -134,6 +134,38 @@ func (m *Manager) Disconnect(id string) {
 	m.rebuildToolsExcluding(id)
 }
 
+// Refresh re-queries the tool list for all connected servers and rebuilds the
+// internal tools slice. Returns the number of tools discovered.
+func (m *Manager) Refresh(ctx context.Context) int {
+	m.tools = nil
+	for i := range m.statuses {
+		st := &m.statuses[i]
+		st.Tools = nil
+
+		session, ok := m.sessions[st.Config.ID]
+		if !ok || !st.Connected {
+			continue
+		}
+
+		toolsResult, err := session.ListTools(ctx, &mcp.ListToolsParams{})
+		if err != nil {
+			st.Error = fmt.Sprintf("failed to refresh tools: %v", err)
+			continue
+		}
+
+		st.Error = ""
+		for _, t := range toolsResult.Tools {
+			st.Tools = append(st.Tools, t.Name)
+			m.tools = append(m.tools, &mcpToolAdapter{
+				serverName: st.Config.Name,
+				tool:       *t,
+				session:    session,
+			})
+		}
+	}
+	return len(m.tools)
+}
+
 func (m *Manager) rebuildToolsExcluding(excludeID string) {
 	var filtered []domain.Tool
 	for _, t := range m.tools {
