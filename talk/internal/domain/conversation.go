@@ -18,20 +18,20 @@ type ConversationManager struct {
 	provider           Provider
 	store              MessageStore
 	promptProvider     PromptProvider
-	tools              []Tool
+	toolsProvider      func() []Tool
 	reporters          []UsageReporter // Multiple reporters for parallel execution
 	maxConcurrentTools int             // Maximum concurrent tool executions
 }
 
 // NewConversationManager creates a ConversationManager.
-func NewConversationManager(client LlmClient, modelID string, provider Provider, store MessageStore, pp PromptProvider, tools []Tool, reporters []UsageReporter, maxConcurrentTools int) *ConversationManager {
+func NewConversationManager(client LlmClient, modelID string, provider Provider, store MessageStore, pp PromptProvider, tools func() []Tool, reporters []UsageReporter, maxConcurrentTools int) *ConversationManager {
 	return &ConversationManager{
 		client:             client,
 		modelID:            modelID,
 		provider:           provider,
 		store:              store,
 		promptProvider:     pp,
-		tools:              tools,
+		toolsProvider:      tools,
 		reporters:          reporters,
 		maxConcurrentTools: maxConcurrentTools,
 	}
@@ -114,7 +114,7 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 		conversationInput := formatMessagesAsInput(messages, systemPrompt)
 
 		callStartedAt := time.Now()
-		response, usage, err := m.client.Complete(ctx, systemPrompt, messages, m.tools)
+		response, usage, err := m.client.Complete(ctx, systemPrompt, messages, m.toolsProvider())
 		if err != nil {
 			return "", fmt.Errorf("model completion: %w", err)
 		}
@@ -234,7 +234,7 @@ func (m *ConversationManager) executeToolCallsParallel(ctx context.Context, call
 }
 
 func (m *ConversationManager) executeTool(ctx context.Context, call ToolCall) (ToolResult, error) {
-	for _, t := range m.tools {
+	for _, t := range m.toolsProvider() {
 		if t.Name() == call.Name {
 			content, err := t.Execute(ctx, call.Input)
 			if err != nil {

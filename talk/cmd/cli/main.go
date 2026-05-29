@@ -108,8 +108,6 @@ func run(ctx context.Context, modelAlias, systemFile string) error {
 	mcpManager.ConnectAll(ctx)
 	defer mcpManager.Close()
 
-	tools := mcpManager.Tools()
-
 	// Create usage reporters based on configuration
 	var reporters []domain.UsageReporter
 
@@ -135,7 +133,7 @@ func run(ctx context.Context, modelAlias, systemFile string) error {
 		reporters = append(reporters, &usage.ConsoleUsageReporter{})
 	}
 
-	manager := domain.NewConversationManager(client, modelAlias, modelDescriptor.Provider, store, pp, tools, reporters, cfg.ToolsMaxConcurrent)
+	manager := domain.NewConversationManager(client, modelAlias, modelDescriptor.Provider, store, pp, mcpManager.Tools, reporters, cfg.ToolsMaxConcurrent)
 	currentModel := modelAlias
 
 	fmt.Print(cyan(bold+"Session started."+reset) + faint(" "+version.Version) + `

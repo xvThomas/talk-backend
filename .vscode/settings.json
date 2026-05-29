@@ -19,6 +19,7 @@
         "sqlitestore",
         "testdata",
         "tmpl",
+        "unmarshalling",
         "unmaterialized"
     ],
     "chat.tools.terminal.autoApprove": {
