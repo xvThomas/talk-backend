@@ -22,17 +22,6 @@ func (p *spyPrinter) Output() string                    { return p.out.String() 
 func (p *spyPrinter) ErrOutput() string                 { return p.err.String() }
 func (p *spyPrinter) Reset()                            { p.out.Reset(); p.err.Reset() }
 
-// fakeLineReader returns pre-configured responses in sequence.
-// Deprecated: use scriptReader instead.
-type fakeLineReader struct {
-	responses []string
-	index     int
-}
-
-func newFakeLineReader(responses ...string) *LineReader {
-	return &LineReader{history: &History{}}
-}
-
 // scriptReader implements Reader with pre-scripted answers.
 type scriptReader struct {
 	answers []string
@@ -73,11 +62,11 @@ func newFakeStore() *fakeStore {
 	return &fakeStore{sessionID: "test-session-id", userID: "test-user"}
 }
 
-func (s *fakeStore) Add(msg domain.Message)  { s.messages = append(s.messages, msg) }
-func (s *fakeStore) All() []domain.Message    { return s.messages }
-func (s *fakeStore) Clear()                   { s.messages = nil }
-func (s *fakeStore) SessionID() string        { return s.sessionID }
-func (s *fakeStore) UserID() string           { return s.userID }
+func (s *fakeStore) Add(msg domain.Message) { s.messages = append(s.messages, msg) }
+func (s *fakeStore) All() []domain.Message  { return s.messages }
+func (s *fakeStore) Clear()                 { s.messages = nil }
+func (s *fakeStore) SessionID() string      { return s.sessionID }
+func (s *fakeStore) UserID() string         { return s.userID }
 
 // fakeSessionStore implements both domain.MessageStore and domain.SessionBrowser.
 type fakeSessionStore struct {
@@ -149,22 +138,6 @@ func (r *fakeRegistry) Get(_ context.Context, id string) (mcp.ServerConfig, erro
 
 func (r *fakeRegistry) List(_ context.Context) ([]mcp.ServerConfig, error) {
 	return r.servers, nil
-}
-
-// scriptLineReader provides scripted answers to ReadLine calls.
-// Deprecated: use scriptReader instead.
-type scriptLineReader struct {
-	answers []string
-	idx     int
-}
-
-func (s *scriptLineReader) next() (string, error) {
-	if s.idx >= len(s.answers) {
-		return "", fmt.Errorf("no more scripted answers")
-	}
-	ans := s.answers[s.idx]
-	s.idx++
-	return ans, nil
 }
 
 // fakeRouter implements ModelSwitcher for testing.
