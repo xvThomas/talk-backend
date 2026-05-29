@@ -6,6 +6,7 @@ import "context"
 type AuthType string
 
 const (
+	AuthTypeNone   AuthType = "none"
 	AuthTypeAPIKey AuthType = "apikey"
 	AuthTypeOAuth  AuthType = "oauth"
 )

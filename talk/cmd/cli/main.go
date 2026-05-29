@@ -136,16 +136,8 @@ func run(ctx context.Context, modelAlias, systemFile string) error {
 	manager := domain.NewConversationManager(client, modelAlias, modelDescriptor.Provider, store, pp, mcpManager.Tools, reporters, cfg.ToolsMaxConcurrent)
 	currentModel := modelAlias
 
-	fmt.Print(cyan(bold+"Session started."+reset) + faint(" "+version.Version) + `
-` +
-		faint(" Commands:\n") +
-		faint("  /model    — switch models\n") +
-		faint("  /memory   — show current session history\n") +
-		faint("  /sessions — list all sessions\n") +
-		faint("  /session  — new session or switch (usage: /session [id])\n") +
-		faint("  /prompt   — show system prompt\n") +
-		faint("  /mcp      — manage MCP servers (add, remove, list)\n") +
-		faint("  /q        — quit\n"))
+	fmt.Print(cyan(bold+"Session started."+reset) + faint(" "+version.Version) + "\n")
+	cmdHelp()
 	history := NewHistory(historyFilePath())
 	lr := NewLineReader(history)
 	for {
@@ -227,11 +219,13 @@ func handleSlashCommand(ctx context.Context, input string, r *router.Router, pp 
 	case "/mcp":
 		args := strings.TrimSpace(strings.TrimPrefix(input, "/mcp"))
 		cmdMCP(ctx, args, mcpMgr, mcpReg, lr)
+	case "/help":
+		cmdHelp()
 	case "/q":
 		cmdQuit()
 	default:
-		fmt.Printf("Unknown command %s. Available: %s, %s, %s, %s, %s, %s, %s\n",
-			red(cmd), yellow("/model"), yellow("/memory"), yellow("/sessions"), yellow("/session"), yellow("/prompt"), yellow("/mcp"), yellow("/q"))
+		fmt.Printf("Unknown command %s. Type %s for available commands.\n",
+			red(cmd), yellow("/help"))
 	}
 }
 
@@ -300,7 +294,7 @@ func cmdMCPAdd(ctx context.Context, mgr *internalmcp.Manager, reg internalmcp.Re
 	}
 	url = strings.TrimSpace(url)
 
-	authChoice, err := lr.ReadLine("Auth type [apikey/oauth] (default: apikey): ")
+	authChoice, err := lr.ReadLine("Auth type [none/apikey/oauth] (default: apikey): ")
 	if err != nil {
 		fmt.Println(yellow("Cancelled."))
 		return
@@ -318,6 +312,8 @@ func cmdMCPAdd(ctx context.Context, mgr *internalmcp.Manager, reg internalmcp.Re
 	}
 
 	switch cfg.AuthType {
+	case internalmcp.AuthTypeNone:
+		// No credentials needed.
 	case internalmcp.AuthTypeAPIKey:
 		key, err := lr.ReadLine("API Key: ")
 		if err != nil {
@@ -341,7 +337,7 @@ func cmdMCPAdd(ctx context.Context, mgr *internalmcp.Manager, reg internalmcp.Re
 			}
 		}
 	default:
-		fmt.Printf("%s\n", yellow("Invalid auth type. Use 'apikey' or 'oauth'."))
+		fmt.Printf("%s\n", yellow("Invalid auth type. Use 'none', 'apikey', or 'oauth'."))
 		return
 	}
 
@@ -399,6 +395,18 @@ func cmdMCPRemove(ctx context.Context, mgr *internalmcp.Manager, reg internalmcp
 	}
 	mgr.Disconnect(selected.ID)
 	fmt.Printf("Removed %s.\n", green(selected.Name))
+}
+
+func cmdHelp() {
+	fmt.Println(emphasize("Commands:"))
+	fmt.Println(faint("  /help     — show this help"))
+	fmt.Println(faint("  /model    — switch models"))
+	fmt.Println(faint("  /memory   — show current session history"))
+	fmt.Println(faint("  /sessions — list all sessions"))
+	fmt.Println(faint("  /session  — new session or switch (usage: /session [id])"))
+	fmt.Println(faint("  /prompt   — show system prompt"))
+	fmt.Println(faint("  /mcp      — manage MCP servers (add, remove, list)"))
+	fmt.Println(faint("  /q        — quit"))
 }
 
 func cmdQuit() {
