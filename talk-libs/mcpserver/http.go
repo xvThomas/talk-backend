@@ -133,6 +133,7 @@ func requestLoggerMiddleware(mux *http.ServeMux) http.Handler {
 }
 
 // statusRecorder wraps http.ResponseWriter to capture the status code.
+// It also implements http.Flusher so that SSE streams can flush properly.
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
@@ -148,6 +149,16 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 		r.status = http.StatusOK
 	}
 	return r.ResponseWriter.Write(b)
+}
+
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
 }
 
 // clientIP returns the best-effort client IP address from the request,
