@@ -10,6 +10,11 @@ import (
 	"golang.org/x/term"
 )
 
+// Reader abstracts line input for testability.
+type Reader interface {
+	ReadLine(prompt string) (string, error)
+}
+
 // LineReader reads a line of input with raw-mode terminal support,
 // including history navigation via up/down arrow keys.
 type LineReader struct {

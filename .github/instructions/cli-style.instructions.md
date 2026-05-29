@@ -4,8 +4,30 @@ applyTo: talk/cmd/cli/**
 
 # CLI colour conventions
 
-All terminal output in `src/cmd/` must use the ANSI helper functions defined at
-the top of `main.go`. Never write raw `\033[…m` escape sequences inline.
+All terminal output in `talk/cmd/cli/` must use the ANSI helper functions defined
+in `colors.go`. Never write raw `\033[…m` escape sequences inline.
+
+## Architecture
+
+The CLI uses an `App` struct (defined in `app.go`) that embeds a `Printer`
+interface (defined in `printer.go`). All command functions are methods on `*App`
+and must use `a.Printf`, `a.Println`, and `a.Errorf` instead of `fmt.Print*` or
+`fmt.Fprint*(os.Stderr, …)`. This enables test code to capture output.
+
+### File layout
+
+| File              | Responsibility                                  |
+| ----------------- | ----------------------------------------------- |
+| `main.go`         | Cobra setup, `run()` wiring, path helpers       |
+| `app.go`          | `App` struct definition                         |
+| `printer.go`      | `Printer` interface + `stdPrinter`              |
+| `colors.go`       | ANSI constants and helper functions             |
+| `commands.go`     | Command dispatcher + `/help`, `/q`, `/prompt`   |
+| `cmd_model.go`    | `/model` command                                |
+| `cmd_mcp.go`      | `/mcp` sub-commands                             |
+| `cmd_session.go`  | `/memory`, `/sessions`, `/session` commands     |
+| `reader.go`       | `LineReader` (readline wrapper)                 |
+| `history.go`      | Persistent history file                         |
 
 ## Helper functions
 
@@ -40,7 +62,9 @@ wrap with `reset`, e.g. `bold + colorCyan + s + reset`.
 
 ## Rules
 
-- **Errors** written to `os.Stderr` use `red(…)` for the label, plain text for
+- **All output** goes through `a.Printf`, `a.Println`, or `a.Errorf`. Never call
+  `fmt.Print*` or `fmt.Fprint*(os.Stderr, …)` directly in command methods.
+- **Errors** use `a.Errorf` with `red(…)` for the label, plain text for
   the error value (the error string itself is not coloured).
 - **Never** apply colour to user-provided content (answers from the LLM, prompt
   text, tool output).
