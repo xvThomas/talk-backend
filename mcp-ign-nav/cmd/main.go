@@ -35,12 +35,14 @@ func buildApp(env *config.ServerEnv) *mcpserver.App {
 	reverseGeocodeTool := tools.NewReverseGeocodingTool(ignLimiter)
 	geocodeTool := tools.NewGeocodingTool(ignLimiter)
 	routeTool := tools.NewRouteTool(navLimiter, env.GetGeoJSONGeometry)
+	distanceTool := tools.NewDistanceTimeTool(navLimiter)
 
 	opts := []mcpserver.Option{
 		mcpserver.WithTools(
 			mcpserver.RegisterTool(reverseGeocodeTool),
 			mcpserver.RegisterTool(geocodeTool),
 			mcpserver.RegisterTool(routeTool),
+			mcpserver.RegisterTool(distanceTool),
 		),
 		mcpserver.WithHTTPSecurity(mcpserver.HTTPSecurityConfig{
 			RateLimit:      env.HTTPRateLimit,
