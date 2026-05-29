@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/version"
 
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
 )
+
+const connectTimeout = 15 * time.Second
 
 // ServerStatus holds the runtime state of a connected MCP server.
 type ServerStatus struct {
@@ -174,6 +177,9 @@ func (m *Manager) Close() {
 }
 
 func (m *Manager) connect(ctx context.Context, cfg ServerConfig) (*mcp.ClientSession, error) {
+	connectCtx, cancel := context.WithTimeout(ctx, connectTimeout)
+	defer cancel()
+
 	httpClient := buildHTTPClient(cfg)
 	transport := &mcp.StreamableClientTransport{
 		Endpoint:   cfg.URL,
@@ -184,7 +190,7 @@ func (m *Manager) connect(ctx context.Context, cfg ServerConfig) (*mcp.ClientSes
 		Version: version.Version,
 	}, nil)
 
-	session, err := client.Connect(ctx, transport, nil)
+	session, err := client.Connect(connectCtx, transport, nil)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to %q (%s): %w", cfg.Name, cfg.URL, err)
 	}
