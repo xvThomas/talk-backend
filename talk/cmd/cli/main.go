@@ -11,10 +11,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/version"
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/config"
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/llm/router"
+	internalmcp "github.com/xvThomas/LLMClientWrapper/talk/internal/mcp"
 	sqlitestore "github.com/xvThomas/LLMClientWrapper/talk/internal/memory/sqlite"
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/prompt"
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/usage"
@@ -86,7 +88,6 @@ func run(ctx context.Context, modelAlias, systemFile string) error {
 	}
 
 	pp := buildPromptProvider(systemFile)
-	var tools []domain.Tool // TODO: implement MCP client to connect to tool servers
 
 	sessionID := domain.GenerateSessionID()
 	const userID = "anonymous"
@@ -97,6 +98,17 @@ func run(ctx context.Context, modelAlias, systemFile string) error {
 		return fmt.Errorf("opening session store: %w", err)
 	}
 	defer func() { _ = store.Close() }()
+
+	// MCP server registry and manager.
+	mcpRegistry, err := internalmcp.NewSQLiteRegistry(store.DB())
+	if err != nil {
+		return fmt.Errorf("initializing mcp registry: %w", err)
+	}
+	mcpManager := internalmcp.NewManager(mcpRegistry)
+	mcpManager.ConnectAll(ctx)
+	defer mcpManager.Close()
+
+	tools := mcpManager.Tools()
 
 	// Create usage reporters based on configuration
 	var reporters []domain.UsageReporter
@@ -134,7 +146,7 @@ func run(ctx context.Context, modelAlias, systemFile string) error {
 		faint("  /sessions — list all sessions\n") +
 		faint("  /session  — new session or switch (usage: /session [id])\n") +
 		faint("  /prompt   — show system prompt\n") +
-		faint("  /tools    — list available tools\n") +
+		faint("  /mcp      — manage MCP servers (add, remove, list)\n") +
 		faint("  /q        — quit\n"))
 	history := NewHistory(historyFilePath())
 	lr := NewLineReader(history)
@@ -154,7 +166,7 @@ func run(ctx context.Context, modelAlias, systemFile string) error {
 		}
 
 		if strings.HasPrefix(input, "/") {
-			handleSlashCommand(ctx, input, r, pp, store, manager, &currentModel, lr, tools)
+			handleSlashCommand(ctx, input, r, pp, store, manager, &currentModel, lr, mcpManager, mcpRegistry)
 			continue
 		}
 		history.Add(input)
@@ -200,7 +212,7 @@ func storeDBPath() string {
 	return "talk.db"
 }
 
-func handleSlashCommand(ctx context.Context, input string, r *router.Router, pp domain.PromptProvider, store domain.MessageStore, manager *domain.ConversationManager, currentModel *string, lr *LineReader, tools []domain.Tool) {
+func handleSlashCommand(ctx context.Context, input string, r *router.Router, pp domain.PromptProvider, store domain.MessageStore, manager *domain.ConversationManager, currentModel *string, lr *LineReader, mcpMgr *internalmcp.Manager, mcpReg internalmcp.Registry) {
 	cmd := strings.Fields(input)[0]
 	switch cmd {
 	case "/model":
@@ -214,25 +226,181 @@ func handleSlashCommand(ctx context.Context, input string, r *router.Router, pp 
 		cmdSession(ctx, store, lr, args)
 	case "/prompt":
 		cmdPrompt(ctx, pp)
-	case "/tools":
-		cmdTools(tools)
+	case "/mcp":
+		args := strings.TrimSpace(strings.TrimPrefix(input, "/mcp"))
+		cmdMCP(ctx, args, mcpMgr, mcpReg, lr)
 	case "/q":
 		cmdQuit()
 	default:
 		fmt.Printf("Unknown command %s. Available: %s, %s, %s, %s, %s, %s, %s\n",
-			red(cmd), yellow("/model"), yellow("/memory"), yellow("/sessions"), yellow("/session"), yellow("/prompt"), yellow("/tools"), yellow("/q"))
+			red(cmd), yellow("/model"), yellow("/memory"), yellow("/sessions"), yellow("/session"), yellow("/prompt"), yellow("/mcp"), yellow("/q"))
 	}
 }
 
-func cmdTools(tools []domain.Tool) {
-	if len(tools) == 0 {
-		fmt.Println(faint("(no tools registered)"))
+func cmdMCP(ctx context.Context, args string, mgr *internalmcp.Manager, reg internalmcp.Registry, lr *LineReader) {
+	parts := strings.Fields(args)
+	if len(parts) == 0 {
+		// Default to list.
+		cmdMCPList(mgr)
 		return
 	}
-	fmt.Println("\n" + emphasize("Available tools:"))
-	for _, t := range tools {
-		fmt.Printf("  %s\n    %s\n", cyan(t.Name()), t.Description())
+	switch parts[0] {
+	case "list":
+		cmdMCPList(mgr)
+	case "add":
+		cmdMCPAdd(ctx, mgr, reg, lr)
+	case "remove":
+		cmdMCPRemove(ctx, mgr, reg, lr)
+	default:
+		fmt.Printf("Unknown /mcp subcommand %s. Available: %s, %s, %s\n",
+			red(parts[0]), yellow("list"), yellow("add"), yellow("remove"))
 	}
+}
+
+func cmdMCPList(mgr *internalmcp.Manager) {
+	statuses := mgr.Statuses()
+	if len(statuses) == 0 {
+		fmt.Println(faint("(no MCP servers registered)"))
+		return
+	}
+	fmt.Println("\n" + emphasize("MCP Servers:"))
+	for _, st := range statuses {
+		stateLabel := green("connected")
+		if !st.Connected {
+			stateLabel = red("disconnected")
+		}
+		serverInfo := ""
+		if st.ServerName != "" {
+			serverInfo = faint(" (" + st.ServerName)
+			if st.ServerVersion != "" {
+				serverInfo += " " + st.ServerVersion
+			}
+			serverInfo += ")"
+		}
+		fmt.Printf("  %s  %s  %s%s\n", cyan(st.Config.Name), faint(st.Config.URL), stateLabel, serverInfo)
+		if st.Error != "" {
+			fmt.Printf("    %s\n", red(st.Error))
+		}
+		for _, toolName := range st.Tools {
+			fmt.Printf("    • %s\n", toolName)
+		}
+	}
+}
+
+func cmdMCPAdd(ctx context.Context, mgr *internalmcp.Manager, reg internalmcp.Registry, lr *LineReader) {
+	name, err := lr.ReadLine("Server name: ")
+	if err != nil || strings.TrimSpace(name) == "" {
+		fmt.Println(yellow("Cancelled."))
+		return
+	}
+	name = strings.TrimSpace(name)
+
+	url, err := lr.ReadLine("Server URL: ")
+	if err != nil || strings.TrimSpace(url) == "" {
+		fmt.Println(yellow("Cancelled."))
+		return
+	}
+	url = strings.TrimSpace(url)
+
+	authChoice, err := lr.ReadLine("Auth type [apikey/oauth] (default: apikey): ")
+	if err != nil {
+		fmt.Println(yellow("Cancelled."))
+		return
+	}
+	authChoice = strings.TrimSpace(strings.ToLower(authChoice))
+	if authChoice == "" {
+		authChoice = "apikey"
+	}
+
+	cfg := internalmcp.ServerConfig{
+		ID:       uuid.NewString(),
+		Name:     name,
+		URL:      url,
+		AuthType: internalmcp.AuthType(authChoice),
+	}
+
+	switch cfg.AuthType {
+	case internalmcp.AuthTypeAPIKey:
+		key, err := lr.ReadLine("API Key: ")
+		if err != nil {
+			fmt.Println(yellow("Cancelled."))
+			return
+		}
+		cfg.APIKey = strings.TrimSpace(key)
+	case internalmcp.AuthTypeOAuth:
+		clientID, _ := lr.ReadLine("Client ID: ")
+		clientSecret, _ := lr.ReadLine("Client Secret: ")
+		tokenURL, _ := lr.ReadLine("Token URL: ")
+		scopes, _ := lr.ReadLine("Scopes (comma-separated): ")
+		cfg.OAuth = &internalmcp.OAuthConfig{
+			ClientID:     strings.TrimSpace(clientID),
+			ClientSecret: strings.TrimSpace(clientSecret),
+			TokenURL:     strings.TrimSpace(tokenURL),
+		}
+		if s := strings.TrimSpace(scopes); s != "" {
+			for _, sc := range strings.Split(s, ",") {
+				cfg.OAuth.Scopes = append(cfg.OAuth.Scopes, strings.TrimSpace(sc))
+			}
+		}
+	default:
+		fmt.Printf("%s\n", yellow("Invalid auth type. Use 'apikey' or 'oauth'."))
+		return
+	}
+
+	// Test connection before persisting.
+	fmt.Printf("Testing connection to %s...\n", faint(cfg.URL))
+	status, err := mgr.Connect(ctx, cfg)
+	if err != nil {
+		fmt.Printf("%s %s\n", red("Connection failed:"), err.Error())
+		return
+	}
+
+	// Persist.
+	if err := reg.Add(ctx, cfg); err != nil {
+		fmt.Printf("%s %s\n", red("Failed to save:"), err.Error())
+		return
+	}
+
+	fmt.Printf("%s %s", green("✓ Server added:"), cyan(name))
+	if status.ServerName != "" {
+		fmt.Printf(" %s", faint("("+status.ServerName+" "+status.ServerVersion+")"))
+	}
+	fmt.Printf(" — %d tools\n", len(status.Tools))
+}
+
+func cmdMCPRemove(ctx context.Context, mgr *internalmcp.Manager, reg internalmcp.Registry, lr *LineReader) {
+	servers, err := reg.List(ctx)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, red("Error: ")+err.Error())
+		return
+	}
+	if len(servers) == 0 {
+		fmt.Println(faint("(no MCP servers registered)"))
+		return
+	}
+
+	fmt.Println("\n" + emphasize("Registered MCP servers:"))
+	for i, s := range servers {
+		fmt.Printf("  [%d] %s  %s\n", i+1, cyan(s.Name), faint(s.URL))
+	}
+
+	choice, err := lr.ReadLine(fmt.Sprintf("Remove [1-%d] (Enter to cancel): ", len(servers)))
+	if err != nil || strings.TrimSpace(choice) == "" {
+		return
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(choice))
+	if err != nil || n < 1 || n > len(servers) {
+		fmt.Println(yellow("Invalid choice."))
+		return
+	}
+
+	selected := servers[n-1]
+	if err := reg.Remove(ctx, selected.ID); err != nil {
+		fmt.Fprintln(os.Stderr, red("Error: ")+err.Error())
+		return
+	}
+	mgr.Disconnect(selected.ID)
+	fmt.Printf("Removed %s.\n", green(selected.Name))
 }
 
 func cmdQuit() {

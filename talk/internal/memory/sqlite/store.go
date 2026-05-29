@@ -76,6 +76,9 @@ func NewStore(dbPath, sessionID, userID string) (*Store, error) {
 	return s, nil
 }
 
+// DB returns the underlying database connection for sharing with other components.
+func (s *Store) DB() *sql.DB { return s.db }
+
 // Close closes the underlying database connection.
 func (s *Store) Close() error {
 	return s.db.Close()
