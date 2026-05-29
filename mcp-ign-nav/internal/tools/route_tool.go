@@ -96,7 +96,8 @@ func (t *RouteTool) Name() string { return "route" }
 
 // Description describes what the tool does.
 func (t *RouteTool) Description() string {
-	return "Calculate a route between two points in France using the IGN Navigation API. Returns distance, duration, and route portions."
+	return "Calculate a route between two points in France using the IGN Navigation API. Returns distance, duration, and route portions. " +
+		"IMPORTANT: 'start' and 'end' must be coordinates as 'longitude,latitude'. Use the 'geocode' tool first to convert city names or addresses into coordinates."
 }
 
 // Call performs route calculation by calling the IGN /itineraire endpoint.
