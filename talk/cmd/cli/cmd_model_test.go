@@ -115,7 +115,7 @@ func TestCmdHelp_ContainsAllCommands(t *testing.T) {
 	app.cmdHelp()
 
 	out := p.Output()
-	commands := []string{"/help", "/model", "/memory", "/sessions", "/session", "/prompt", "/mcp", "/q"}
+	commands := []string{"/help", "/model", "/memory", "/session", "/prompt", "/mcp", "/q"}
 	for _, cmd := range commands {
 		if !strings.Contains(out, cmd) {
 			t.Errorf("expected %q in help output", cmd)

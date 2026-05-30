@@ -128,14 +128,33 @@ func (s *InMemoryStore) LoadSession(_ context.Context, sessionID string) ([]doma
 	}
 	var turns []domain.HistoryTurn
 	for i := 0; i < len(sd.messages); i++ {
-		if sd.messages[i].Role == domain.RoleUser {
-			turn := domain.HistoryTurn{Question: sd.messages[i].Content, At: sd.timestamps[i]}
-			if i+1 < len(sd.messages) && sd.messages[i+1].Role == domain.RoleAssistant {
-				turn.Answer = sd.messages[i+1].Content
-				i++
-			}
-			turns = append(turns, turn)
+		if sd.messages[i].Role != domain.RoleUser {
+			continue
 		}
+		turn := domain.HistoryTurn{Question: sd.messages[i].Content, At: sd.timestamps[i]}
+		// Find the last assistant message in this turn to capture the final
+		// response after tool calls.
+		for j := i + 1; j < len(sd.messages); j++ {
+			if sd.messages[j].Role == domain.RoleUser {
+				break
+			}
+			if sd.messages[j].Role == domain.RoleAssistant && sd.messages[j].Content != "" {
+				turn.Answer = sd.messages[j].Content
+				i = j
+			}
+		}
+		turns = append(turns, turn)
 	}
 	return turns, nil
+}
+
+// DeleteSession removes a session and its data from memory.
+func (s *InMemoryStore) DeleteSession(_ context.Context, sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, sessionID)
+	if sessionID == s.sessionID {
+		s.sessionID = ""
+	}
+	return nil
 }

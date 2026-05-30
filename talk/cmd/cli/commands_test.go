@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/mcp"
 )
 
@@ -68,15 +67,15 @@ func TestHandleSlashCommand_Memory(t *testing.T) {
 	}
 }
 
-func TestHandleSlashCommand_Sessions(t *testing.T) {
+func TestHandleSlashCommand_SessionUnknownSubcommand(t *testing.T) {
 	p := &spyPrinter{}
 	app := newTestApp(p)
 
 	app.handleSlashCommand(context.Background(), "/sessions")
 
 	out := p.Output()
-	if !strings.Contains(out, "sessions not available") {
-		t.Errorf("expected fallback message, got: %s", out)
+	if !strings.Contains(out, "Unknown command") {
+		t.Errorf("expected unknown command message, got: %s", out)
 	}
 }
 
@@ -84,16 +83,13 @@ func TestHandleSlashCommand_Session(t *testing.T) {
 	p := &spyPrinter{}
 	app := newTestApp(p)
 	store := newFakeSessionStore()
-	store.sessions = []domain.SessionSummary{
-		{ID: "deadbeef-0000-0000-0000-000000000000"},
-	}
 	app.Store = store
 
-	app.handleSlashCommand(context.Background(), "/session dead")
+	app.handleSlashCommand(context.Background(), "/session new")
 
 	out := p.Output()
-	if !strings.Contains(out, "Switched to session") {
-		t.Errorf("expected switch message, got: %s", out)
+	if !strings.Contains(out, "New session created") {
+		t.Errorf("expected new session message, got: %s", out)
 	}
 }
 

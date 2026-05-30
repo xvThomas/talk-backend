@@ -10,19 +10,42 @@ import (
 )
 
 // toSDKMessages converts domain messages to Anthropic SDK message params.
+// It skips messages that would produce empty content (e.g. tool messages
+// reloaded from DB without their ToolResults/ToolCalls) and merges
+// consecutive same-role messages to maintain valid alternation.
 func toSDKMessages(messages []domain.Message) []anthropic.MessageParam {
 	params := make([]anthropic.MessageParam, 0, len(messages))
 	for _, msg := range messages {
 		switch msg.Role {
 		case domain.RoleUser:
+			if msg.Content == "" {
+				continue
+			}
 			params = append(params, anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content)))
 		case domain.RoleAssistant:
-			params = append(params, toAssistantParam(msg))
+			p := toAssistantParam(msg)
+			if len(p.Content) == 0 {
+				continue
+			}
+			params = append(params, p)
 		case domain.RoleTool:
+			if len(msg.ToolResults) == 0 {
+				continue
+			}
 			params = append(params, toToolResultParam(msg))
 		}
 	}
-	return params
+	// Anthropic requires strict user/assistant alternation.
+	// Merge consecutive same-role messages by keeping only the last one.
+	merged := make([]anthropic.MessageParam, 0, len(params))
+	for _, p := range params {
+		if len(merged) > 0 && merged[len(merged)-1].Role == p.Role {
+			merged[len(merged)-1] = p
+		} else {
+			merged = append(merged, p)
+		}
+	}
+	return merged
 }
 
 func toAssistantParam(msg domain.Message) anthropic.MessageParam {

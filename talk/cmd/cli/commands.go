@@ -13,8 +13,6 @@ func (a *App) handleSlashCommand(ctx context.Context, input string) {
 		a.cmdModel()
 	case "/memory":
 		a.cmdMemory(ctx)
-	case "/sessions":
-		a.cmdSessions(ctx)
 	case "/session":
 		args := strings.TrimSpace(strings.TrimPrefix(input, "/session"))
 		a.cmdSession(ctx, args)
@@ -35,14 +33,13 @@ func (a *App) handleSlashCommand(ctx context.Context, input string) {
 
 func (a *App) cmdHelp() {
 	a.Println(emphasize("Commands:"))
-	a.Println(faint("  /help     — show this help"))
-	a.Println(faint("  /model    — switch models"))
-	a.Println(faint("  /memory   — show current session history"))
-	a.Println(faint("  /sessions — list all sessions"))
-	a.Println(faint("  /session  — new session or switch (usage: /session [id])"))
-	a.Println(faint("  /prompt   — show system prompt"))
-	a.Println(faint("  /mcp      — manage MCP servers (add, remove, refresh, list)"))
-	a.Println(faint("  /q        — quit"))
+	a.Println(faint("  /help                          — show this help"))
+	a.Println(faint("  /model                         — switch models"))
+	a.Println(faint("  /memory                        — show current session history"))
+	a.Println(faint("  /session [list|new|remove]     — manage sessions"))
+	a.Println(faint("  /prompt                        — show system prompt"))
+	a.Println(faint("  /mcp [list|add|remove|refresh] — manage MCP servers"))
+	a.Println(faint("  /q                             — quit"))
 }
 
 func (a *App) cmdQuit() {

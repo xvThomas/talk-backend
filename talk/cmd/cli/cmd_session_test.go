@@ -9,10 +9,11 @@ import (
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
 )
 
+// --- cmdMemory tests ---
+
 func TestCmdMemory_NoSessionBrowser(t *testing.T) {
 	p := &spyPrinter{}
 	app := newTestApp(p)
-	// fakeStore does not implement SessionBrowser
 
 	app.cmdMemory(context.Background())
 
@@ -25,8 +26,7 @@ func TestCmdMemory_NoSessionBrowser(t *testing.T) {
 func TestCmdMemory_EmptyHistory(t *testing.T) {
 	p := &spyPrinter{}
 	app := newTestApp(p)
-	store := newFakeSessionStore()
-	app.Store = store
+	app.Store = newFakeSessionStore()
 
 	app.cmdMemory(context.Background())
 
@@ -85,132 +85,96 @@ func TestCmdMemory_ShowsTitleAndMultipleCalls(t *testing.T) {
 	}
 }
 
-func TestCmdSessions_ShowsCurrentMarker(t *testing.T) {
+// --- cmdSession dispatcher tests ---
+
+func TestCmdSession_DefaultIsList(t *testing.T) {
 	p := &spyPrinter{}
 	app := newTestApp(p)
 	store := newFakeSessionStore()
 	store.sessions = []domain.SessionSummary{
-		{ID: store.sessionID, Title: "Current", CreatedAt: time.Date(2025, 3, 1, 9, 0, 0, 0, time.UTC), TurnCount: 2},
-		{ID: "other-0000-0000-0000-000000000000", Title: "", CreatedAt: time.Date(2025, 3, 2, 10, 0, 0, 0, time.UTC)},
+		{ID: store.sessionID, Title: "Chat", CreatedAt: time.Date(2025, 3, 1, 9, 0, 0, 0, time.UTC), TurnCount: 2},
 	}
 	app.Store = store
-
-	app.cmdSessions(context.Background())
-
-	out := p.Output()
-	if !strings.Contains(out, "← current") {
-		t.Errorf("expected '← current' marker, got: %s", out)
-	}
-	if !strings.Contains(out, "(untitled)") {
-		t.Errorf("expected '(untitled)' fallback, got: %s", out)
-	}
-}
-
-func TestCmdSessions_NoSessionBrowser(t *testing.T) {
-	p := &spyPrinter{}
-	app := newTestApp(p)
-
-	app.cmdSessions(context.Background())
-
-	out := p.Output()
-	if !strings.Contains(out, "sessions not available") {
-		t.Errorf("expected 'sessions not available', got: %s", out)
-	}
-}
-
-func TestCmdSessions_Empty(t *testing.T) {
-	p := &spyPrinter{}
-	app := newTestApp(p)
-	app.Store = newFakeSessionStore()
-
-	app.cmdSessions(context.Background())
-
-	out := p.Output()
-	if !strings.Contains(out, "(no sessions)") {
-		t.Errorf("expected '(no sessions)' message, got: %s", out)
-	}
-}
-
-func TestCmdSessions_ListsSessions(t *testing.T) {
-	p := &spyPrinter{}
-	app := newTestApp(p)
-	store := newFakeSessionStore()
-	store.sessions = []domain.SessionSummary{
-		{ID: "aaaa1111-0000-0000-0000-000000000000", Title: "First chat", CreatedAt: time.Date(2025, 3, 1, 9, 0, 0, 0, time.UTC), TurnCount: 3},
-		{ID: "bbbb2222-0000-0000-0000-000000000000", Title: "Second chat", CreatedAt: time.Date(2025, 3, 2, 10, 0, 0, 0, time.UTC), TurnCount: 1},
-	}
-	app.Store = store
-
-	app.cmdSessions(context.Background())
-
-	out := p.Output()
-	if !strings.Contains(out, "First chat") {
-		t.Errorf("expected 'First chat' in output, got: %s", out)
-	}
-	if !strings.Contains(out, "Second chat") {
-		t.Errorf("expected 'Second chat' in output, got: %s", out)
-	}
-}
-
-func TestCmdSession_SwitchByPrefix(t *testing.T) {
-	p := &spyPrinter{}
-	app := newTestApp(p)
-	store := newFakeSessionStore()
-	store.sessions = []domain.SessionSummary{
-		{ID: "deadbeef-0000-0000-0000-000000000000", Title: "Old session"},
-	}
-	app.Store = store
-
-	app.cmdSession(context.Background(), "dead")
-
-	out := p.Output()
-	if !strings.Contains(out, "Switched to session") {
-		t.Errorf("expected switch confirmation, got: %s", out)
-	}
-	if store.sessionID != "deadbeef-0000-0000-0000-000000000000" {
-		t.Errorf("expected session to be set to deadbeef..., got: %s", store.sessionID)
-	}
-}
-
-func TestCmdSession_PrefixNotFound(t *testing.T) {
-	p := &spyPrinter{}
-	app := newTestApp(p)
-	store := newFakeSessionStore()
-	store.sessions = []domain.SessionSummary{
-		{ID: "deadbeef-0000-0000-0000-000000000000"},
-	}
-	app.Store = store
-
-	app.cmdSession(context.Background(), "xxxx")
-
-	out := p.Output()
-	if !strings.Contains(out, "No session found matching") {
-		t.Errorf("expected 'No session found' message, got: %s", out)
-	}
-}
-
-func TestCmdSession_InteractiveNew(t *testing.T) {
-	p := &spyPrinter{}
-	app := newTestApp(p)
-	store := newFakeSessionStore()
-	store.sessions = []domain.SessionSummary{
-		{ID: "aaaa0000-0000-0000-0000-000000000000", Title: "old"},
-	}
-	app.Store = store
-	app.LR = newScriptReader("new")
+	app.LR = newScriptReader("") // cancel
 
 	app.cmdSession(context.Background(), "")
 
 	out := p.Output()
-	if !strings.Contains(out, "New session created") {
-		t.Errorf("expected 'New session created', got: %s", out)
-	}
-	if store.sessionID == "abcd1234-0000-0000-0000-000000000000" {
-		t.Error("expected sessionID to change from original")
+	if !strings.Contains(out, "Sessions:") {
+		t.Errorf("expected session list, got: %s", out)
 	}
 }
 
-func TestCmdSession_InteractiveNumericChoice(t *testing.T) {
+func TestCmdSession_UnknownSubcommand(t *testing.T) {
+	p := &spyPrinter{}
+	app := newTestApp(p)
+	app.Store = newFakeSessionStore()
+
+	app.cmdSession(context.Background(), "foo")
+
+	out := p.Output()
+	if !strings.Contains(out, "Unknown /session subcommand") {
+		t.Errorf("expected unknown subcommand message, got: %s", out)
+	}
+}
+
+// --- cmdSessionList tests ---
+
+func TestCmdSessionList_NoSessionBrowser(t *testing.T) {
+	p := &spyPrinter{}
+	app := newTestApp(p)
+
+	app.cmdSessionList(context.Background())
+
+	out := p.Output()
+	if !strings.Contains(out, "session management not available") {
+		t.Errorf("expected 'session management not available', got: %s", out)
+	}
+}
+
+func TestCmdSessionList_Empty(t *testing.T) {
+	p := &spyPrinter{}
+	app := newTestApp(p)
+	app.Store = newFakeSessionStore()
+	app.LR = newScriptReader("")
+
+	app.cmdSessionList(context.Background())
+
+	out := p.Output()
+	if !strings.Contains(out, "no past sessions found") {
+		t.Errorf("expected 'no past sessions found', got: %s", out)
+	}
+}
+
+func TestCmdSessionList_ShowsSessionsWithTitleAndTurns(t *testing.T) {
+	p := &spyPrinter{}
+	app := newTestApp(p)
+	store := newFakeSessionStore()
+	store.sessions = []domain.SessionSummary{
+		{ID: store.sessionID, Title: "My Chat", CreatedAt: time.Date(2025, 3, 1, 9, 0, 0, 0, time.UTC), TurnCount: 5},
+		{ID: "other-0000-0000-0000-000000000000", Title: "", CreatedAt: time.Date(2025, 3, 2, 10, 0, 0, 0, time.UTC), TurnCount: 1},
+	}
+	app.Store = store
+	app.LR = newScriptReader("")
+
+	app.cmdSessionList(context.Background())
+
+	out := p.Output()
+	if !strings.Contains(out, "My Chat") {
+		t.Errorf("expected title 'My Chat', got: %s", out)
+	}
+	if !strings.Contains(out, "(untitled)") {
+		t.Errorf("expected '(untitled)' fallback, got: %s", out)
+	}
+	if !strings.Contains(out, "5 turns") {
+		t.Errorf("expected '5 turns', got: %s", out)
+	}
+	if !strings.Contains(out, "\xe2\x86\x90 current") {
+		t.Errorf("expected current marker, got: %s", out)
+	}
+}
+
+func TestCmdSessionList_SwitchByNumber(t *testing.T) {
 	p := &spyPrinter{}
 	app := newTestApp(p)
 	store := newFakeSessionStore()
@@ -221,18 +185,36 @@ func TestCmdSession_InteractiveNumericChoice(t *testing.T) {
 	app.Store = store
 	app.LR = newScriptReader("2")
 
-	app.cmdSession(context.Background(), "")
+	app.cmdSessionList(context.Background())
 
 	out := p.Output()
 	if !strings.Contains(out, "Switched to session") {
 		t.Errorf("expected 'Switched to session', got: %s", out)
 	}
 	if store.sessionID != "bbbb0000-0000-0000-0000-000000000000" {
-		t.Errorf("expected session switched to bbbb..., got: %s", store.sessionID)
+		t.Errorf("expected session bbbb..., got: %s", store.sessionID)
 	}
 }
 
-func TestCmdSession_InteractiveInvalidChoice(t *testing.T) {
+func TestCmdSessionList_NewFromMenu(t *testing.T) {
+	p := &spyPrinter{}
+	app := newTestApp(p)
+	store := newFakeSessionStore()
+	store.sessions = []domain.SessionSummary{
+		{ID: "aaaa0000-0000-0000-0000-000000000000", Title: "old"},
+	}
+	app.Store = store
+	app.LR = newScriptReader("new")
+
+	app.cmdSessionList(context.Background())
+
+	out := p.Output()
+	if !strings.Contains(out, "New session created") {
+		t.Errorf("expected 'New session created', got: %s", out)
+	}
+}
+
+func TestCmdSessionList_InvalidChoice(t *testing.T) {
 	p := &spyPrinter{}
 	app := newTestApp(p)
 	store := newFakeSessionStore()
@@ -242,7 +224,7 @@ func TestCmdSession_InteractiveInvalidChoice(t *testing.T) {
 	app.Store = store
 	app.LR = newScriptReader("99")
 
-	app.cmdSession(context.Background(), "")
+	app.cmdSessionList(context.Background())
 
 	out := p.Output()
 	if !strings.Contains(out, "Invalid choice") {
@@ -250,7 +232,7 @@ func TestCmdSession_InteractiveInvalidChoice(t *testing.T) {
 	}
 }
 
-func TestCmdSession_InteractiveCancel(t *testing.T) {
+func TestCmdSessionList_Cancel(t *testing.T) {
 	p := &spyPrinter{}
 	app := newTestApp(p)
 	store := newFakeSessionStore()
@@ -258,50 +240,150 @@ func TestCmdSession_InteractiveCancel(t *testing.T) {
 		{ID: "aaaa0000-0000-0000-0000-000000000000"},
 	}
 	app.Store = store
-	app.LR = newScriptReader("") // empty → cancel
+	app.LR = newScriptReader("")
 
-	app.cmdSession(context.Background(), "")
+	app.cmdSessionList(context.Background())
 
 	out := p.Output()
-	// Should show sessions menu but not switch
 	if strings.Contains(out, "Switched") {
 		t.Error("expected no switch on cancel")
 	}
 }
 
-func TestShortID(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"abcdefgh-1234", "abcdefgh…"},
-		{"short", "short"},
-		{"12345678", "12345678"},
-		{"123456789", "12345678…"},
-	}
-	for _, tt := range tests {
-		got := shortID(tt.input)
-		if got != tt.want {
-			t.Errorf("shortID(%q) = %q, want %q", tt.input, got, tt.want)
-		}
+// --- cmdSessionNew tests ---
+
+func TestCmdSessionNew_NoSessionBrowser(t *testing.T) {
+	p := &spyPrinter{}
+	app := newTestApp(p)
+
+	app.cmdSessionNew(context.Background())
+
+	out := p.Output()
+	if !strings.Contains(out, "session management not available") {
+		t.Errorf("expected 'session management not available', got: %s", out)
 	}
 }
 
-func TestCmdSession_InteractiveEmptySessions(t *testing.T) {
+func TestCmdSessionNew_CreatesSession(t *testing.T) {
 	p := &spyPrinter{}
 	app := newTestApp(p)
 	store := newFakeSessionStore()
-	store.sessions = nil
 	app.Store = store
-	app.LR = newScriptReader("new")
 
-	app.cmdSession(context.Background(), "")
+	origID := store.sessionID
+	app.cmdSessionNew(context.Background())
 
 	out := p.Output()
-	if !strings.Contains(out, "no past sessions found") {
-		t.Errorf("expected 'no past sessions found', got: %s", out)
-	}
 	if !strings.Contains(out, "New session created") {
 		t.Errorf("expected 'New session created', got: %s", out)
+	}
+	if store.sessionID == origID {
+		t.Error("expected sessionID to change")
+	}
+}
+
+// --- cmdSessionRemove tests ---
+
+func TestCmdSessionRemove_NoSessionBrowser(t *testing.T) {
+	p := &spyPrinter{}
+	app := newTestApp(p)
+
+	app.cmdSessionRemove(context.Background())
+
+	out := p.Output()
+	if !strings.Contains(out, "session management not available") {
+		t.Errorf("expected 'session management not available', got: %s", out)
+	}
+}
+
+func TestCmdSessionRemove_EmptyList(t *testing.T) {
+	p := &spyPrinter{}
+	app := newTestApp(p)
+	app.Store = newFakeSessionStore()
+
+	app.cmdSessionRemove(context.Background())
+
+	out := p.Output()
+	if !strings.Contains(out, "no sessions to remove") {
+		t.Errorf("expected 'no sessions to remove', got: %s", out)
+	}
+}
+
+func TestCmdSessionRemove_RemovesSession(t *testing.T) {
+	p := &spyPrinter{}
+	app := newTestApp(p)
+	store := newFakeSessionStore()
+	store.sessions = []domain.SessionSummary{
+		{ID: store.sessionID, Title: "current one", CreatedAt: time.Date(2025, 3, 1, 9, 0, 0, 0, time.UTC), TurnCount: 2},
+		{ID: "other-0000-0000-0000-000000000000", Title: "other one", CreatedAt: time.Date(2025, 3, 2, 10, 0, 0, 0, time.UTC), TurnCount: 1},
+	}
+	app.Store = store
+	app.LR = newScriptReader("2") // select the non-current session
+
+	app.cmdSessionRemove(context.Background())
+
+	out := p.Output()
+	if !strings.Contains(out, "Removed session") {
+		t.Errorf("expected 'Removed session', got: %s", out)
+	}
+	if len(store.deleted) != 1 || store.deleted[0] != "other-0000-0000-0000-000000000000" {
+		t.Errorf("expected other session to be deleted, got: %v", store.deleted)
+	}
+}
+
+func TestCmdSessionRemove_CannotRemoveCurrent(t *testing.T) {
+	p := &spyPrinter{}
+	app := newTestApp(p)
+	store := newFakeSessionStore()
+	store.sessions = []domain.SessionSummary{
+		{ID: store.sessionID, Title: "current one"},
+		{ID: "other-0000-0000-0000-000000000000", Title: "other one"},
+	}
+	app.Store = store
+	app.LR = newScriptReader("1") // select the current session
+
+	app.cmdSessionRemove(context.Background())
+
+	out := p.Output()
+	if !strings.Contains(out, "Cannot remove the current session") {
+		t.Errorf("expected cannot-remove message, got: %s", out)
+	}
+	if len(store.deleted) != 0 {
+		t.Errorf("expected nothing deleted, got: %v", store.deleted)
+	}
+}
+
+func TestCmdSessionRemove_Cancel(t *testing.T) {
+	p := &spyPrinter{}
+	app := newTestApp(p)
+	store := newFakeSessionStore()
+	store.sessions = []domain.SessionSummary{
+		{ID: "other-0000-0000-0000-000000000000", Title: "x"},
+	}
+	app.Store = store
+	app.LR = newScriptReader("")
+
+	app.cmdSessionRemove(context.Background())
+
+	if len(store.deleted) != 0 {
+		t.Errorf("expected nothing deleted on cancel, got: %v", store.deleted)
+	}
+}
+
+func TestCmdSessionRemove_InvalidChoice(t *testing.T) {
+	p := &spyPrinter{}
+	app := newTestApp(p)
+	store := newFakeSessionStore()
+	store.sessions = []domain.SessionSummary{
+		{ID: "other-0000-0000-0000-000000000000", Title: "x"},
+	}
+	app.Store = store
+	app.LR = newScriptReader("99")
+
+	app.cmdSessionRemove(context.Background())
+
+	out := p.Output()
+	if !strings.Contains(out, "Invalid choice") {
+		t.Errorf("expected 'Invalid choice', got: %s", out)
 	}
 }

@@ -223,18 +223,26 @@ func (s *Store) LoadSession(_ context.Context, sessionID string) ([]domain.Histo
 
 	var turns []domain.HistoryTurn
 	for i := 0; i < len(msgs); i++ {
-		if msgs[i].role == string(domain.RoleUser) {
-			turn := domain.HistoryTurn{
-				Question: msgs[i].content,
-				At:       msgs[i].createdAt,
-				TurnID:   msgs[i].turnID,
-			}
-			if i+1 < len(msgs) && msgs[i+1].role == string(domain.RoleAssistant) {
-				turn.Answer = msgs[i+1].content
-				i++
-			}
-			turns = append(turns, turn)
+		if msgs[i].role != string(domain.RoleUser) {
+			continue
 		}
+		turn := domain.HistoryTurn{
+			Question: msgs[i].content,
+			At:       msgs[i].createdAt,
+			TurnID:   msgs[i].turnID,
+		}
+		// Find the last assistant message in this turn (same turn_id)
+		// to capture the final response after tool calls.
+		for j := i + 1; j < len(msgs); j++ {
+			if msgs[j].role == string(domain.RoleUser) {
+				break
+			}
+			if msgs[j].role == string(domain.RoleAssistant) && msgs[j].content != "" {
+				turn.Answer = msgs[j].content
+				i = j
+			}
+		}
+		turns = append(turns, turn)
 	}
 	return turns, nil
 }
@@ -279,4 +287,33 @@ func (s *Store) loadCurrentSessionLocked() error {
 		})
 	}
 	return rows.Err()
+}
+
+// DeleteSession removes a session and all its messages from the database.
+func (s *Store) DeleteSession(_ context.Context, sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	if _, err := tx.Exec("DELETE FROM messages WHERE session_id = ?", sessionID); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("deleting messages: %w", err)
+	}
+	if _, err := tx.Exec("DELETE FROM sessions WHERE id = ?", sessionID); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("deleting session: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+
+	// If we just deleted the current session, reset in-memory state.
+	if sessionID == s.sessionID {
+		s.messages = nil
+		s.materialized = false
+	}
+	return nil
 }

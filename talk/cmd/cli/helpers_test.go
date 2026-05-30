@@ -71,9 +71,11 @@ func (s *fakeStore) UserID() string         { return s.userID }
 // fakeSessionStore implements both domain.MessageStore and domain.SessionBrowser.
 type fakeSessionStore struct {
 	fakeStore
-	sessions []domain.SessionSummary
-	turns    map[string][]domain.HistoryTurn
-	setErr   error
+	sessions  []domain.SessionSummary
+	turns     map[string][]domain.HistoryTurn
+	setErr    error
+	deleteErr error
+	deleted   []string
 }
 
 func newFakeSessionStore() *fakeSessionStore {
@@ -97,6 +99,20 @@ func (s *fakeSessionStore) ListSessions(_ context.Context, _ string) ([]domain.S
 
 func (s *fakeSessionStore) LoadSession(_ context.Context, id string) ([]domain.HistoryTurn, error) {
 	return s.turns[id], nil
+}
+
+func (s *fakeSessionStore) DeleteSession(_ context.Context, id string) error {
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
+	s.deleted = append(s.deleted, id)
+	for i, sess := range s.sessions {
+		if sess.ID == id {
+			s.sessions = append(s.sessions[:i], s.sessions[i+1:]...)
+			break
+		}
+	}
+	return nil
 }
 
 // fakeRegistry implements mcp.Registry for testing.
