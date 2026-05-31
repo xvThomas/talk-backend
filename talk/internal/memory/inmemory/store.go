@@ -118,8 +118,8 @@ func (s *InMemoryStore) ListSessions(_ context.Context, _ string) ([]domain.Sess
 	return summaries, nil
 }
 
-// LoadSession returns the conversation history for the given session as question/answer pairs.
-func (s *InMemoryStore) LoadSession(_ context.Context, sessionID string) ([]domain.HistoryTurn, error) {
+// LoadHistoryTurnsFromSession returns the conversation history for the given session as question/answer pairs.
+func (s *InMemoryStore) LoadHistoryTurnsFromSession(_ context.Context, sessionID string) ([]domain.HistoryTurn, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sd, exists := s.sessions[sessionID]

@@ -46,6 +46,6 @@ type MessageStore interface {
 type SessionBrowser interface {
 	SetSession(ctx context.Context, sessionID string) error
 	ListSessions(ctx context.Context, userID string) ([]SessionSummary, error)
-	LoadSession(ctx context.Context, sessionID string) ([]HistoryTurn, error)
+	LoadHistoryTurnsFromSession(ctx context.Context, sessionID string) ([]HistoryTurn, error)
 	DeleteSession(ctx context.Context, sessionID string) error
 }

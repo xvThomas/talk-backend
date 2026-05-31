@@ -349,3 +349,113 @@ func TestConversation_SequentialWhenMaxConcurrentIsOne(t *testing.T) {
 		t.Errorf("both tools should be called once, got tool1=%d tool2=%d", tool1.called, tool2.called)
 	}
 }
+
+func TestConversation_OneToolMessagePerExecution(t *testing.T) {
+	tool1 := &stubTool{name: "tool1", result: map[string]any{"result": "r1"}}
+	tool2 := &stubTool{name: "tool2", result: map[string]any{"result": "r2"}}
+
+	client := &stubClient{responses: []*Message{
+		{
+			Role: RoleAssistant,
+			ToolCalls: []ToolCall{
+				{ID: "1", Name: "tool1", Input: map[string]any{"x": 1}},
+				{ID: "2", Name: "tool2", Input: map[string]any{"x": 2}},
+			},
+		},
+		{Role: RoleAssistant, Content: "done"},
+	}}
+
+	store := &stubStore{}
+	mgr := NewConversationManager(
+		client,
+		"test-model",
+		ProviderAnthropic,
+		store,
+		&stubPromptProvider{"system"},
+		func() []Tool { return []Tool{tool1, tool2} },
+		nil,
+		1,
+	)
+
+	_, err := mgr.Chat(context.Background(), "run tools")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(store.messages) != 5 {
+		t.Fatalf("expected 5 messages, got %d", len(store.messages))
+	}
+
+	turnID := store.messages[0].TurnID
+	if turnID == "" {
+		t.Fatal("expected non-empty turn ID on user message")
+	}
+
+	toolMsg1 := store.messages[2]
+	toolMsg2 := store.messages[3]
+
+	if toolMsg1.Role != RoleTool || toolMsg2.Role != RoleTool {
+		t.Fatalf("expected tool messages at index 2 and 3, got roles %q and %q", toolMsg1.Role, toolMsg2.Role)
+	}
+	if toolMsg1.TurnID != turnID || toolMsg2.TurnID != turnID {
+		t.Fatalf("expected tool messages to carry turn ID %q, got %q and %q", turnID, toolMsg1.TurnID, toolMsg2.TurnID)
+	}
+	if len(toolMsg1.ToolCalls) != 1 || len(toolMsg1.ToolResults) != 1 {
+		t.Fatalf("expected first tool message to contain 1 call and 1 result, got %d calls and %d results", len(toolMsg1.ToolCalls), len(toolMsg1.ToolResults))
+	}
+	if len(toolMsg2.ToolCalls) != 1 || len(toolMsg2.ToolResults) != 1 {
+		t.Fatalf("expected second tool message to contain 1 call and 1 result, got %d calls and %d results", len(toolMsg2.ToolCalls), len(toolMsg2.ToolResults))
+	}
+	if toolMsg1.Content != "" || toolMsg2.Content != "" {
+		t.Fatalf("expected empty tool message content, got %q and %q", toolMsg1.Content, toolMsg2.Content)
+	}
+}
+
+func TestConversation_AssistantToolOnlyResponseGetsSummaryAndTurnID(t *testing.T) {
+	tool := &stubTool{name: "geocode", result: map[string]any{"ok": true}}
+	client := &stubClient{responses: []*Message{
+		{
+			Role: RoleAssistant,
+			ToolCalls: []ToolCall{
+				{ID: "1", Name: "geocode", Input: map[string]any{"q": "Orleans"}},
+				{ID: "2", Name: "geocode", Input: map[string]any{"q": "Lille"}},
+			},
+		},
+		{Role: RoleAssistant, Content: "Done."},
+	}}
+
+	store := &stubStore{}
+	mgr := NewConversationManager(
+		client,
+		"test-model",
+		ProviderAnthropic,
+		store,
+		&stubPromptProvider{"system"},
+		func() []Tool { return []Tool{tool} },
+		nil,
+		2,
+	)
+
+	_, err := mgr.Chat(context.Background(), "route")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(store.messages) < 2 {
+		t.Fatalf("expected at least 2 messages, got %d", len(store.messages))
+	}
+
+	assistant := store.messages[1]
+	if assistant.Role != RoleAssistant {
+		t.Fatalf("expected second message to be assistant, got %q", assistant.Role)
+	}
+	if assistant.TurnID == "" {
+		t.Fatal("expected assistant message to carry turn ID")
+	}
+	if assistant.Content == "" {
+		t.Fatal("expected assistant content summary for tool-only response")
+	}
+	if assistant.Content != "Calling tools geocode, geocode." {
+		t.Fatalf("unexpected assistant fallback content: %q", assistant.Content)
+	}
+}

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -27,12 +28,18 @@ CREATE TABLE IF NOT EXISTS messages (
 	session_id TEXT NOT NULL REFERENCES sessions(id),
 	role       TEXT NOT NULL,
 	content    TEXT NOT NULL DEFAULT '',
+	tool_name  TEXT NOT NULL DEFAULT '',
+	tool_input TEXT NOT NULL DEFAULT '',
+	tool_output TEXT NOT NULL DEFAULT '',
+	tool_call_id TEXT NOT NULL DEFAULT '',
 	turn_id    TEXT NOT NULL DEFAULT '',
 	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_messages_tool_name ON messages(tool_name);
+CREATE INDEX IF NOT EXISTS idx_messages_tool_call_id ON messages(tool_call_id);
 `
 
 // Store is a persistent SQLite implementation of domain.MessageStore and domain.SessionBrowser.
@@ -106,9 +113,36 @@ func (s *Store) Add(msg domain.Message) {
 	}
 
 	now := time.Now().UTC().Format(timeFormat)
+	content := msg.Content
+	toolName, toolInput, toolOutput, toolCallID := "", "", "", ""
+
+	if msg.Role == domain.RoleAssistant && len(msg.ToolCalls) > 0 {
+		rawCalls, err := json.Marshal(msg.ToolCalls)
+		if err == nil {
+			toolInput = string(rawCalls)
+		}
+	}
+
+	if msg.Role == domain.RoleTool {
+		if len(msg.ToolCalls) > 0 {
+			toolName = msg.ToolCalls[0].Name
+			toolCallID = msg.ToolCalls[0].ID
+			rawInput, err := json.Marshal(msg.ToolCalls[0].Input)
+			if err == nil {
+				toolInput = string(rawInput)
+			}
+		}
+		if len(msg.ToolResults) > 0 {
+			toolOutput = msg.ToolResults[0].Content
+			if toolCallID == "" {
+				toolCallID = msg.ToolResults[0].ToolCallID
+			}
+		}
+	}
+
 	if _, err := s.db.Exec(
-		"INSERT INTO messages (session_id, role, content, turn_id, created_at) VALUES (?, ?, ?, ?, ?)",
-		s.sessionID, string(msg.Role), msg.Content, msg.TurnID, now,
+		"INSERT INTO messages (session_id, role, content, tool_name, tool_input, tool_output, tool_call_id, turn_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		s.sessionID, string(msg.Role), content, toolName, toolInput, toolOutput, toolCallID, msg.TurnID, now,
 	); err != nil {
 		return
 	}
@@ -187,8 +221,8 @@ func (s *Store) ListSessions(_ context.Context, userID string) ([]domain.Session
 	return sessions, rows.Err()
 }
 
-// LoadSession returns the conversation history for the given session as question/answer pairs.
-func (s *Store) LoadSession(_ context.Context, sessionID string) ([]domain.HistoryTurn, error) {
+// LoadHistoryTurnsFromSession returns the conversation history for the given session as question/answer pairs.
+func (s *Store) LoadHistoryTurnsFromSession(_ context.Context, sessionID string) ([]domain.HistoryTurn, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -266,7 +300,7 @@ func (s *Store) loadCurrentSessionLocked() error {
 	s.materialized = true
 
 	rows, err := s.db.Query(
-		"SELECT role, content, turn_id FROM messages WHERE session_id = ? ORDER BY id",
+		"SELECT role, content, tool_name, tool_input, tool_output, tool_call_id, turn_id FROM messages WHERE session_id = ? ORDER BY id",
 		s.sessionID,
 	)
 	if err != nil {
@@ -276,15 +310,43 @@ func (s *Store) loadCurrentSessionLocked() error {
 
 	s.messages = nil
 	for rows.Next() {
-		var role, content, turnID string
-		if err := rows.Scan(&role, &content, &turnID); err != nil {
+		var role, content, toolName, toolInput, toolOutput, toolCallID, turnID string
+		if err := rows.Scan(&role, &content, &toolName, &toolInput, &toolOutput, &toolCallID, &turnID); err != nil {
 			return fmt.Errorf("scanning message: %w", err)
 		}
-		s.messages = append(s.messages, domain.Message{
+		msg := domain.Message{
 			Role:    domain.Role(role),
 			Content: content,
 			TurnID:  turnID,
-		})
+		}
+
+		switch msg.Role {
+		case domain.RoleAssistant:
+			if toolInput != "" {
+				var calls []domain.ToolCall
+				if err := json.Unmarshal([]byte(toolInput), &calls); err == nil {
+					msg.ToolCalls = calls
+				}
+			}
+		case domain.RoleTool:
+			if toolName != "" || toolInput != "" || toolOutput != "" || toolCallID != "" {
+				var input map[string]any
+				if toolInput != "" {
+					_ = json.Unmarshal([]byte(toolInput), &input)
+				}
+				msg.ToolCalls = append(msg.ToolCalls, domain.ToolCall{
+					ID:    toolCallID,
+					Name:  toolName,
+					Input: input,
+				})
+				msg.ToolResults = append(msg.ToolResults, domain.ToolResult{
+					ToolCallID: toolCallID,
+					Content:    toolOutput,
+				})
+			}
+		}
+
+		s.messages = append(s.messages, msg)
 	}
 	return rows.Err()
 }

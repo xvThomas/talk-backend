@@ -36,11 +36,11 @@ func toSDKMessages(messages []domain.Message) []anthropic.MessageParam {
 		}
 	}
 	// Anthropic requires strict user/assistant alternation.
-	// Merge consecutive same-role messages by keeping only the last one.
+	// Merge consecutive same-role messages by appending content blocks.
 	merged := make([]anthropic.MessageParam, 0, len(params))
 	for _, p := range params {
 		if len(merged) > 0 && merged[len(merged)-1].Role == p.Role {
-			merged[len(merged)-1] = p
+			merged[len(merged)-1].Content = append(merged[len(merged)-1].Content, p.Content...)
 		} else {
 			merged = append(merged, p)
 		}

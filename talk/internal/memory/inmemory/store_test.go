@@ -201,7 +201,7 @@ func TestStore_ListSessionsCreatedAtIsSet(t *testing.T) {
 
 func TestStore_LoadSessionReturnsNilForUnknown(t *testing.T) {
 	s := NewInMemoryStore("sess-1", "user1")
-	turns, err := s.LoadSession(context.Background(), "nonexistent")
+	turns, err := s.LoadHistoryTurnsFromSession(context.Background(), "nonexistent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestStore_LoadSessionBuildsTurns(t *testing.T) {
 	s.Add(domain.Message{Role: domain.RoleUser, Content: "q2"})
 	s.Add(domain.Message{Role: domain.RoleAssistant, Content: "a2"})
 
-	turns, err := s.LoadSession(context.Background(), "sess-1")
+	turns, err := s.LoadHistoryTurnsFromSession(context.Background(), "sess-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestStore_LoadSessionUserWithoutAnswer(t *testing.T) {
 	s.Add(domain.Message{Role: domain.RoleUser, Content: "q1"})
 	// No assistant reply
 
-	turns, _ := s.LoadSession(context.Background(), "sess-1")
+	turns, _ := s.LoadHistoryTurnsFromSession(context.Background(), "sess-1")
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn, got %d", len(turns))
 	}
@@ -253,7 +253,7 @@ func TestStore_LoadSessionTimestampsAreSet(t *testing.T) {
 	s.Add(domain.Message{Role: domain.RoleAssistant, Content: "a1"})
 	after := time.Now()
 
-	turns, _ := s.LoadSession(context.Background(), "sess-1")
+	turns, _ := s.LoadHistoryTurnsFromSession(context.Background(), "sess-1")
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn, got %d", len(turns))
 	}

@@ -97,7 +97,7 @@ func (s *fakeSessionStore) ListSessions(_ context.Context, _ string) ([]domain.S
 	return s.sessions, nil
 }
 
-func (s *fakeSessionStore) LoadSession(_ context.Context, id string) ([]domain.HistoryTurn, error) {
+func (s *fakeSessionStore) LoadHistoryTurnsFromSession(_ context.Context, id string) ([]domain.HistoryTurn, error) {
 	return s.turns[id], nil
 }
 

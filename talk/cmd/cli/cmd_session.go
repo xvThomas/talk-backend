@@ -172,7 +172,7 @@ func (a *App) cmdMemory(ctx context.Context) {
 		a.Println(faint("(session history not available)"))
 		return
 	}
-	turns, err := sb.LoadSession(ctx, a.Store.SessionID())
+	turns, err := sb.LoadHistoryTurnsFromSession(ctx, a.Store.SessionID())
 	if err != nil {
 		a.Errorf("%s%s\n", red("Error: "), err.Error())
 		return

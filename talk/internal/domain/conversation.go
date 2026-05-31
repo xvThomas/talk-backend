@@ -142,7 +142,12 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 		callCount++
 		kind = CallKindToolResult
 
-		m.store.Add(*response)
+		storedResponse := *response
+		storedResponse.TurnID = turnTraceID
+		if strings.TrimSpace(storedResponse.Content) == "" && len(storedResponse.ToolCalls) > 0 {
+			storedResponse.Content = formatToolCallSummary(storedResponse.ToolCalls)
+		}
+		m.store.Add(storedResponse)
 
 		if len(response.ToolCalls) == 0 {
 			m.reportConversationTurn(TurnEvent{
@@ -162,7 +167,7 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 			return response.Content, nil
 		}
 
-		if err := m.executeToolCalls(ctx, response.ToolCalls); err != nil {
+		if err := m.executeToolCalls(ctx, turnTraceID, response.ToolCalls); err != nil {
 			return "", err
 		}
 	}
@@ -170,31 +175,32 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 	return "", fmt.Errorf("exceeded maximum tool call iterations (%d)", maxToolCalls)
 }
 
-func (m *ConversationManager) executeToolCalls(ctx context.Context, calls []ToolCall) error {
+func (m *ConversationManager) executeToolCalls(ctx context.Context, turnID string, calls []ToolCall) error {
 	if len(calls) == 1 || m.maxConcurrentTools <= 1 {
 		// Execute sequentially for single calls or when concurrency is disabled
-		return m.executeToolCallsSequential(ctx, calls)
+		return m.executeToolCallsSequential(ctx, turnID, calls)
 	}
 	// Execute in parallel with concurrency limit
-	return m.executeToolCallsParallel(ctx, calls)
+	return m.executeToolCallsParallel(ctx, turnID, calls)
 }
 
-func (m *ConversationManager) executeToolCallsSequential(ctx context.Context, calls []ToolCall) error {
-	results := make([]ToolResult, 0, len(calls))
-
+func (m *ConversationManager) executeToolCallsSequential(ctx context.Context, turnID string, calls []ToolCall) error {
 	for _, call := range calls {
 		result, err := m.executeTool(ctx, call)
 		if err != nil {
 			return err
 		}
-		results = append(results, result)
+		m.store.Add(Message{
+			Role:        RoleTool,
+			ToolCalls:   []ToolCall{call},
+			ToolResults: []ToolResult{result},
+			TurnID:      turnID,
+		})
 	}
-
-	m.store.Add(Message{Role: RoleTool, ToolResults: results})
 	return nil
 }
 
-func (m *ConversationManager) executeToolCallsParallel(ctx context.Context, calls []ToolCall) error {
+func (m *ConversationManager) executeToolCallsParallel(ctx context.Context, turnID string, calls []ToolCall) error {
 	results := make([]ToolResult, len(calls))
 	errors := make([]error, len(calls))
 
@@ -229,7 +235,14 @@ func (m *ConversationManager) executeToolCallsParallel(ctx context.Context, call
 		}
 	}
 
-	m.store.Add(Message{Role: RoleTool, ToolResults: results})
+	for i, call := range calls {
+		m.store.Add(Message{
+			Role:        RoleTool,
+			ToolCalls:   []ToolCall{call},
+			ToolResults: []ToolResult{results[i]},
+			TurnID:      turnID,
+		})
+	}
 	return nil
 }
 
@@ -263,15 +276,24 @@ func formatMessagesAsInput(messages []Message, systemPrompt string) string {
 		return systemPrompt
 	}
 
-	// If the last message contains tool results, format them as input
+	// If the latest messages are tool results, concatenate all contiguous tool
+	// outputs because the model receives each tool output as a separate message.
 	last := messages[len(messages)-1]
 	if last.Role == RoleTool && len(last.ToolResults) > 0 {
+		start := len(messages) - 1
+		for start > 0 && messages[start-1].Role == RoleTool {
+			start--
+		}
 		var b strings.Builder
-		for i, tr := range last.ToolResults {
-			if i > 0 {
-				b.WriteString("\n")
+		isFirst := true
+		for i := start; i < len(messages); i++ {
+			for _, tr := range messages[i].ToolResults {
+				if !isFirst {
+					b.WriteString("\n")
+				}
+				b.WriteString(tr.Content)
+				isFirst = false
 			}
-			b.WriteString(tr.Content)
 		}
 		return b.String()
 	}
@@ -312,4 +334,20 @@ func marshalInput(input map[string]any) string {
 		return "{}"
 	}
 	return string(raw)
+}
+
+func formatToolCallSummary(toolCalls []ToolCall) string {
+	if len(toolCalls) == 0 {
+		return ""
+	}
+	if len(toolCalls) == 1 {
+		return fmt.Sprintf("Calling tool %s.", toolCalls[0].Name)
+	}
+
+	names := make([]string, 0, len(toolCalls))
+	for _, tc := range toolCalls {
+		names = append(names, tc.Name)
+	}
+
+	return fmt.Sprintf("Calling tools %s.", strings.Join(names, ", "))
 }

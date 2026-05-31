@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -259,7 +260,7 @@ func TestStore_ListSessionsCreatedAtIsSet(t *testing.T) {
 
 func TestStore_LoadSessionReturnsNilForUnknown(t *testing.T) {
 	s := newTestStore(t)
-	turns, err := s.LoadSession(context.Background(), "nonexistent")
+	turns, err := s.LoadHistoryTurnsFromSession(context.Background(), "nonexistent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +276,7 @@ func TestStore_LoadSessionBuildsTurns(t *testing.T) {
 	s.Add(domain.Message{Role: domain.RoleUser, Content: "q2"})
 	s.Add(domain.Message{Role: domain.RoleAssistant, Content: "a2"})
 
-	turns, err := s.LoadSession(context.Background(), "sess-1")
+	turns, err := s.LoadHistoryTurnsFromSession(context.Background(), "sess-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +295,7 @@ func TestStore_LoadSessionUserWithoutAnswer(t *testing.T) {
 	s := newTestStore(t)
 	s.Add(domain.Message{Role: domain.RoleUser, Content: "q1"})
 
-	turns, _ := s.LoadSession(context.Background(), "sess-1")
+	turns, _ := s.LoadHistoryTurnsFromSession(context.Background(), "sess-1")
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn, got %d", len(turns))
 	}
@@ -310,7 +311,7 @@ func TestStore_LoadSessionTimestampsAreSet(t *testing.T) {
 	s.Add(domain.Message{Role: domain.RoleAssistant, Content: "a1"})
 	after := time.Now().Add(time.Second)
 
-	turns, _ := s.LoadSession(context.Background(), "sess-1")
+	turns, _ := s.LoadHistoryTurnsFromSession(context.Background(), "sess-1")
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn, got %d", len(turns))
 	}
@@ -415,5 +416,78 @@ func TestStore_NewStoreInvalidPath(t *testing.T) {
 	_, err := NewStore(filepath.Join(string(os.PathSeparator), "nonexistent", "deeply", "nested", "test.db"), "s", "u")
 	if err == nil {
 		t.Fatal("expected error for invalid path")
+	}
+}
+
+func TestStore_AddToolMessagePersistsToolMetadata(t *testing.T) {
+	s := newTestStore(t)
+	s.Add(domain.Message{Role: domain.RoleUser, Content: "q"})
+	s.Add(domain.Message{
+		Role:    domain.RoleTool,
+		Content: "get_weather",
+		ToolCalls: []domain.ToolCall{{
+			ID:    "call-1",
+			Name:  "get_weather",
+			Input: map[string]any{"city": "Paris"},
+		}},
+		ToolResults: []domain.ToolResult{{
+			ToolCallID: "call-1",
+			Content:    `{"temperature":"20C"}`,
+		}},
+	})
+
+	var toolName, toolInput, toolOutput, toolCallID string
+	err := s.db.QueryRow(
+		"SELECT tool_name, tool_input, tool_output, tool_call_id FROM messages WHERE session_id = ? AND role = ? ORDER BY id DESC LIMIT 1",
+		s.sessionID,
+		string(domain.RoleTool),
+	).Scan(&toolName, &toolInput, &toolOutput, &toolCallID)
+	if err != nil {
+		t.Fatalf("query tool row: %v", err)
+	}
+
+	if toolName != "get_weather" {
+		t.Fatalf("expected tool_name %q, got %q", "get_weather", toolName)
+	}
+	if toolCallID != "call-1" {
+		t.Fatalf("expected tool_call_id %q, got %q", "call-1", toolCallID)
+	}
+	if toolOutput != `{"temperature":"20C"}` {
+		t.Fatalf("unexpected tool_output: %q", toolOutput)
+	}
+
+	var input map[string]any
+	if err := json.Unmarshal([]byte(toolInput), &input); err != nil {
+		t.Fatalf("unmarshal tool_input: %v", err)
+	}
+	if input["city"] != "Paris" {
+		t.Fatalf("expected city Paris, got %v", input["city"])
+	}
+}
+
+func TestStore_AssistantToolCallsRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	s.Add(domain.Message{Role: domain.RoleUser, Content: "q"})
+	s.Add(domain.Message{
+		Role: domain.RoleAssistant,
+		ToolCalls: []domain.ToolCall{
+			{ID: "call-1", Name: "tool1", Input: map[string]any{"x": 1}},
+			{ID: "call-2", Name: "tool2", Input: map[string]any{"x": 2}},
+		},
+	})
+
+	if err := s.SetSession(context.Background(), s.sessionID); err != nil {
+		t.Fatalf("reload current session: %v", err)
+	}
+
+	msgs := s.All()
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages after reload, got %d", len(msgs))
+	}
+	if len(msgs[1].ToolCalls) != 2 {
+		t.Fatalf("expected 2 tool calls after reload, got %d", len(msgs[1].ToolCalls))
+	}
+	if msgs[1].ToolCalls[0].Name != "tool1" || msgs[1].ToolCalls[1].Name != "tool2" {
+		t.Fatalf("unexpected tool call names after reload: %+v", msgs[1].ToolCalls)
 	}
 }
