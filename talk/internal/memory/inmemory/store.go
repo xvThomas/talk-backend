@@ -131,14 +131,14 @@ func (s *InMemoryStore) LoadHistoryTurnsFromSession(_ context.Context, sessionID
 		if sd.messages[i].Role != domain.RoleUser {
 			continue
 		}
-		turn := domain.HistoryTurn{Question: sd.messages[i].Content, At: sd.timestamps[i]}
+		turn := domain.HistoryTurn{Question: sd.messages[i].Content, At: sd.timestamps[i], TurnID: sd.messages[i].TurnID}
 		// Find the last assistant message in this turn to capture the final
 		// response after tool calls.
 		for j := i + 1; j < len(sd.messages); j++ {
 			if sd.messages[j].Role == domain.RoleUser {
 				break
 			}
-			if sd.messages[j].Role == domain.RoleAssistant && sd.messages[j].Content != "" {
+			if sd.messages[j].Role == domain.RoleAssistant && sd.messages[j].Content != "" && len(sd.messages[j].ToolCalls) == 0 {
 				turn.Answer = sd.messages[j].Content
 				i = j
 			}

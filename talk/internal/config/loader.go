@@ -16,6 +16,7 @@ type Config struct {
 	MistralAPIKey        string
 	OpenWeatherMapAPIKey string
 	ToolsMaxConcurrent   int // Max concurrent tool executions (default: 4)
+	ContextFullTurns     int // Context mode selector: -1 full, 0 lean, N hybrid:N
 
 	// Langfuse configuration
 	LangfuseSecretKey string // LANGFUSE_SECRET_KEY="sk-lf-..."
@@ -40,6 +41,7 @@ func Load(envFile string) (*Config, error) {
 		MistralAPIKey:        os.Getenv("MISTRAL_API_KEY"),
 		OpenWeatherMapAPIKey: os.Getenv("OPENWEATHERMAP_API_KEY"),
 		ToolsMaxConcurrent:   parseToolsMaxConcurrent(os.Getenv("TOOLS_MAX_CONCURRENT")),
+		ContextFullTurns:     parseContextFullTurns(os.Getenv("CONTEXT_FULL_TURNS")),
 
 		// Langfuse configuration
 		LangfuseSecretKey: os.Getenv("LANGFUSE_SECRET_KEY"),
@@ -108,6 +110,19 @@ func parseToolsMaxConcurrent(value string) int {
 		return n
 	}
 	return 4 // Fallback on invalid input
+}
+
+// parseContextFullTurns parses CONTEXT_FULL_TURNS with fallback to 0 (lean mode).
+// Values: -1=full, 0=lean, N>0=hybrid:N.
+func parseContextFullTurns(value string) int {
+	if value == "" {
+		return 0 // Default to lean mode for lower token cost; users can opt into full or hybrid modes.
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < -1 {
+		return -1
+	}
+	return n
 }
 
 // parseLangfuseBaseURL parses LANGFUSE_BASE_URL with fallback to default.

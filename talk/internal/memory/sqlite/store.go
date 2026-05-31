@@ -36,10 +36,21 @@ CREATE TABLE IF NOT EXISTS messages (
 	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS history_turns (
+	session_id  TEXT NOT NULL REFERENCES sessions(id),
+	turn_id     TEXT NOT NULL,
+	question    TEXT NOT NULL DEFAULT '',
+	answer      TEXT NOT NULL DEFAULT '',
+	question_at DATETIME,
+	answer_at   DATETIME,
+	PRIMARY KEY (session_id, turn_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_tool_name ON messages(tool_name);
 CREATE INDEX IF NOT EXISTS idx_messages_tool_call_id ON messages(tool_call_id);
+CREATE INDEX IF NOT EXISTS idx_history_turns_session_id ON history_turns(session_id);
 `
 
 // Store is a persistent SQLite implementation of domain.MessageStore and domain.SessionBrowser.
@@ -146,7 +157,49 @@ func (s *Store) Add(msg domain.Message) {
 	); err != nil {
 		return
 	}
+
+	_ = s.upsertHistoryTurnLocked(msg, now)
 	s.messages = append(s.messages, msg)
+}
+
+func (s *Store) upsertHistoryTurnLocked(msg domain.Message, now string) error {
+	if msg.TurnID == "" {
+		return nil
+	}
+
+	question := ""
+	answer := ""
+	var questionAt any
+	var answerAt any
+
+	if msg.Role == domain.RoleUser && msg.Content != "" {
+		question = msg.Content
+		questionAt = now
+	}
+	if msg.Role == domain.RoleAssistant && msg.Content != "" && len(msg.ToolCalls) == 0 {
+		answer = msg.Content
+		answerAt = now
+	}
+	if question == "" && answer == "" {
+		return nil
+	}
+
+	_, err := s.db.Exec(
+		`INSERT INTO history_turns (session_id, turn_id, question, answer, question_at, answer_at)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(session_id, turn_id) DO UPDATE SET
+		   question = CASE WHEN excluded.question <> '' THEN excluded.question ELSE history_turns.question END,
+		   answer = CASE WHEN excluded.answer <> '' THEN excluded.answer ELSE history_turns.answer END,
+		   question_at = COALESCE(excluded.question_at, history_turns.question_at),
+		   answer_at = COALESCE(excluded.answer_at, history_turns.answer_at)`,
+		s.sessionID,
+		msg.TurnID,
+		question,
+		answer,
+		questionAt,
+		answerAt,
+	)
+	return err
 }
 
 // All returns all messages for the current session.
@@ -166,6 +219,7 @@ func (s *Store) Clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, _ = s.db.Exec("DELETE FROM messages WHERE session_id = ?", s.sessionID)
+	_, _ = s.db.Exec("DELETE FROM history_turns WHERE session_id = ?", s.sessionID)
 	s.messages = nil
 }
 
@@ -226,36 +280,70 @@ func (s *Store) LoadHistoryTurnsFromSession(_ context.Context, sessionID string)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	rows, err := s.db.Query(
-		"SELECT role, content, turn_id, created_at FROM messages WHERE session_id = ? ORDER BY id",
+	rows, err := s.db.Query(`
+		SELECT turn_id, question, answer, question_at, answer_at
+		FROM history_turns
+		WHERE session_id = ?
+		ORDER BY COALESCE(question_at, answer_at), turn_id
+	`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("loading history turns: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var turns []domain.HistoryTurn
+	for rows.Next() {
+		var turn domain.HistoryTurn
+		var questionAt sql.NullString
+		var answerAt sql.NullString
+		if err := rows.Scan(&turn.TurnID, &turn.Question, &turn.Answer, &questionAt, &answerAt); err != nil {
+			return nil, fmt.Errorf("scanning history turn: %w", err)
+		}
+		if questionAt.Valid {
+			turn.At, _ = time.Parse(timeFormat, questionAt.String)
+		} else if answerAt.Valid {
+			turn.At, _ = time.Parse(timeFormat, answerAt.String)
+		}
+		turns = append(turns, turn)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(turns) > 0 {
+		return turns, nil
+	}
+
+	// Backward compatibility path for legacy rows/tests where history_turns is empty.
+	legacyRows, err := s.db.Query(
+		"SELECT role, content, turn_id, created_at, tool_input FROM messages WHERE session_id = ? ORDER BY id",
 		sessionID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("loading session messages: %w", err)
+		return nil, fmt.Errorf("loading legacy session messages: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer func() { _ = legacyRows.Close() }()
 
 	type msgRow struct {
 		role      string
 		content   string
 		turnID    string
 		createdAt time.Time
+		toolInput string
 	}
 	var msgs []msgRow
-	for rows.Next() {
+	for legacyRows.Next() {
 		var m msgRow
 		var createdAt string
-		if err := rows.Scan(&m.role, &m.content, &m.turnID, &createdAt); err != nil {
-			return nil, fmt.Errorf("scanning message: %w", err)
+		if err := legacyRows.Scan(&m.role, &m.content, &m.turnID, &createdAt, &m.toolInput); err != nil {
+			return nil, fmt.Errorf("scanning legacy message: %w", err)
 		}
 		m.createdAt, _ = time.Parse(timeFormat, createdAt)
 		msgs = append(msgs, m)
 	}
-	if err := rows.Err(); err != nil {
+	if err := legacyRows.Err(); err != nil {
 		return nil, err
 	}
 
-	var turns []domain.HistoryTurn
 	for i := 0; i < len(msgs); i++ {
 		if msgs[i].role != string(domain.RoleUser) {
 			continue
@@ -265,13 +353,11 @@ func (s *Store) LoadHistoryTurnsFromSession(_ context.Context, sessionID string)
 			At:       msgs[i].createdAt,
 			TurnID:   msgs[i].turnID,
 		}
-		// Find the last assistant message in this turn (same turn_id)
-		// to capture the final response after tool calls.
 		for j := i + 1; j < len(msgs); j++ {
 			if msgs[j].role == string(domain.RoleUser) {
 				break
 			}
-			if msgs[j].role == string(domain.RoleAssistant) && msgs[j].content != "" {
+			if msgs[j].role == string(domain.RoleAssistant) && msgs[j].content != "" && msgs[j].toolInput == "" {
 				turn.Answer = msgs[j].content
 				i = j
 			}
@@ -363,6 +449,10 @@ func (s *Store) DeleteSession(_ context.Context, sessionID string) error {
 	if _, err := tx.Exec("DELETE FROM messages WHERE session_id = ?", sessionID); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("deleting messages: %w", err)
+	}
+	if _, err := tx.Exec("DELETE FROM history_turns WHERE session_id = ?", sessionID); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("deleting history turns: %w", err)
 	}
 	if _, err := tx.Exec("DELETE FROM sessions WHERE id = ?", sessionID); err != nil {
 		_ = tx.Rollback()

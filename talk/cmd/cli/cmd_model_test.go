@@ -16,7 +16,7 @@ func TestCmdModel_ValidSelection(t *testing.T) {
 	app.Store = store
 	app.Manager = domain.NewConversationManager(
 		fakeLlmClient{}, "sonnet-4.6", domain.ProviderAnthropic,
-		store, &stubPromptProvider{}, func() []domain.Tool { return nil }, nil, 1,
+		store, nil, &stubPromptProvider{}, func() []domain.Tool { return nil }, nil, 1, -1,
 	)
 
 	// Find the index of a model different from the current one.
@@ -79,7 +79,7 @@ func TestCmdModel_RouterError(t *testing.T) {
 	app.Store = store
 	app.Manager = domain.NewConversationManager(
 		fakeLlmClient{}, "sonnet-4.6", domain.ProviderAnthropic,
-		store, &stubPromptProvider{}, func() []domain.Tool { return nil }, nil, 1,
+		store, nil, &stubPromptProvider{}, func() []domain.Tool { return nil }, nil, 1, -1,
 	)
 
 	// Pick any valid model index

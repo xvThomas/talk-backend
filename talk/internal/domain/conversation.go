@@ -17,23 +17,27 @@ type ConversationManager struct {
 	modelID            string
 	provider           Provider
 	store              MessageStore
+	sessionBrowser     SessionBrowser
 	promptProvider     PromptProvider
 	toolsProvider      func() []Tool
 	reporters          []UsageReporter // Multiple reporters for parallel execution
 	maxConcurrentTools int             // Maximum concurrent tool executions
+	contextFullTurns   int             // -1 full, 0 lean, N hybrid
 }
 
 // NewConversationManager creates a ConversationManager.
-func NewConversationManager(client LlmClient, modelID string, provider Provider, store MessageStore, pp PromptProvider, tools func() []Tool, reporters []UsageReporter, maxConcurrentTools int) *ConversationManager {
+func NewConversationManager(client LlmClient, modelID string, provider Provider, store MessageStore, sessionBrowser SessionBrowser, pp PromptProvider, tools func() []Tool, reporters []UsageReporter, maxConcurrentTools int, contextFullTurns int) *ConversationManager {
 	return &ConversationManager{
 		client:             client,
 		modelID:            modelID,
 		provider:           provider,
 		store:              store,
+		sessionBrowser:     sessionBrowser,
 		promptProvider:     pp,
 		toolsProvider:      tools,
 		reporters:          reporters,
 		maxConcurrentTools: maxConcurrentTools,
+		contextFullTurns:   contextFullTurns,
 	}
 }
 
@@ -110,7 +114,7 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 
 	for range maxToolCalls {
 		// Get the current conversation context for the API call input
-		messages := m.store.All()
+		messages := m.buildContextMessages(ctx, turnTraceID)
 		conversationInput := formatMessagesAsInput(messages, systemPrompt)
 
 		callStartedAt := time.Now()
@@ -173,6 +177,82 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 	}
 
 	return "", fmt.Errorf("exceeded maximum tool call iterations (%d)", maxToolCalls)
+}
+
+func (m *ConversationManager) buildContextMessages(ctx context.Context, currentTurnID string) []Message {
+	allMessages := m.store.All()
+	if m.contextFullTurns < 0 || m.sessionBrowser == nil {
+		return allMessages
+	}
+
+	historyTurns, err := m.sessionBrowser.LoadHistoryTurnsFromSession(ctx, m.sessionID())
+	if err != nil {
+		// Fail open to keep the conversation functional when history loading fails.
+		return allMessages
+	}
+
+	selectedDetailedTurnIDs := make(map[string]struct{})
+	selectedDetailedTurnIDs[currentTurnID] = struct{}{}
+
+	if m.contextFullTurns > 0 {
+		for _, turnID := range lastNTurnIDs(allMessages, currentTurnID, m.contextFullTurns) {
+			selectedDetailedTurnIDs[turnID] = struct{}{}
+		}
+	}
+
+	messages := historyTurnsAsMessages(historyTurns, selectedDetailedTurnIDs, currentTurnID)
+	for _, msg := range allMessages {
+		if msg.TurnID == "" {
+			messages = append(messages, msg)
+			continue
+		}
+		if _, ok := selectedDetailedTurnIDs[msg.TurnID]; ok {
+			messages = append(messages, msg)
+		}
+	}
+
+	return messages
+}
+
+func historyTurnsAsMessages(turns []HistoryTurn, detailedTurnIDs map[string]struct{}, currentTurnID string) []Message {
+	messages := make([]Message, 0, len(turns)*2)
+	for _, turn := range turns {
+		if turn.TurnID == currentTurnID {
+			continue
+		}
+		if _, ok := detailedTurnIDs[turn.TurnID]; ok {
+			continue
+		}
+		if turn.Question != "" {
+			messages = append(messages, Message{Role: RoleUser, Content: turn.Question, TurnID: turn.TurnID})
+		}
+		if turn.Answer != "" {
+			messages = append(messages, Message{Role: RoleAssistant, Content: turn.Answer, TurnID: turn.TurnID})
+		}
+	}
+	return messages
+}
+
+func lastNTurnIDs(messages []Message, currentTurnID string, n int) []string {
+	if n <= 0 {
+		return nil
+	}
+	ordered := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, msg := range messages {
+		if msg.Role != RoleUser || msg.TurnID == "" || msg.TurnID == currentTurnID {
+			continue
+		}
+		if _, ok := seen[msg.TurnID]; ok {
+			continue
+		}
+		seen[msg.TurnID] = struct{}{}
+		ordered = append(ordered, msg.TurnID)
+	}
+	if len(ordered) <= n {
+		return ordered
+	}
+	return ordered[len(ordered)-n:]
 }
 
 func (m *ConversationManager) executeToolCalls(ctx context.Context, turnID string, calls []ToolCall) error {

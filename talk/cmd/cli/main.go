@@ -111,7 +111,18 @@ func run(ctx context.Context, modelAlias, systemFile string) error {
 		reporters = append(reporters, &usage.ConsoleUsageReporter{})
 	}
 
-	manager := domain.NewConversationManager(client, modelAlias, modelDescriptor.Provider, store, pp, mcpManager.Tools, reporters, cfg.ToolsMaxConcurrent)
+	manager := domain.NewConversationManager(
+		client,
+		modelAlias,
+		modelDescriptor.Provider,
+		store,
+		store,
+		pp,
+		mcpManager.Tools,
+		reporters,
+		cfg.ToolsMaxConcurrent,
+		cfg.ContextFullTurns,
+	)
 
 	history := NewHistory(historyFilePath())
 	lr := NewLineReader(history)
