@@ -15,7 +15,7 @@ const maxToolCalls = 5
 type ConversationManager struct {
 	client             LlmClient
 	modelID            string
-	provider           Provider
+	provider           OLTPProvider
 	store              MessageStore
 	promptProvider     PromptProvider
 	toolsProvider      func() []Tool
@@ -25,7 +25,7 @@ type ConversationManager struct {
 }
 
 // NewConversationManager creates a ConversationManager.
-func NewConversationManager(client LlmClient, modelID string, provider Provider, store MessageStore, sessionBrowser SessionBrowser, pp PromptProvider, tools func() []Tool, reporters []UsageReporter, maxConcurrentTools int, contextFullTurns int) *ConversationManager {
+func NewConversationManager(client LlmClient, modelID string, provider OLTPProvider, store MessageStore, sessionBrowser SessionBrowser, pp PromptProvider, tools func() []Tool, reporters []UsageReporter, maxConcurrentTools int, contextFullTurns int) *ConversationManager {
 	return &ConversationManager{
 		client:             client,
 		modelID:            modelID,

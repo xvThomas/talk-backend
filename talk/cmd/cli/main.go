@@ -114,7 +114,7 @@ func run(ctx context.Context, modelAlias, systemFile string) error {
 	manager := domain.NewConversationManager(
 		client,
 		modelAlias,
-		modelDescriptor.Provider,
+		modelDescriptor.OLTPProvider,
 		store,
 		store,
 		pp,

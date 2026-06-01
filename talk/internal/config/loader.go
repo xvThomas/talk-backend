@@ -11,9 +11,10 @@ import (
 
 // Config holds all configuration loaded from environment variables.
 type Config struct {
-	AnthropicAPIKey      string
-	OpenAIAPIKey         string
-	MistralAPIKey        string
+	// AnthropicAPIKey      string
+	// OpenAIAPIKey         string
+	// MistralAPIKey        string
+	// PoolsideAPIKey       string
 	OpenWeatherMapAPIKey string
 	ToolsMaxConcurrent   int // Max concurrent tool executions (default: 4)
 	ContextFullTurns     int // Context mode selector: -1 full, 0 lean, N hybrid:N
@@ -36,9 +37,10 @@ func Load(envFile string) (*Config, error) {
 	_ = godotenv.Load(envFile)
 
 	cfg := &Config{
-		AnthropicAPIKey:      os.Getenv("ANTHROPIC_API_KEY"),
-		OpenAIAPIKey:         os.Getenv("OPENAI_API_KEY"),
-		MistralAPIKey:        os.Getenv("MISTRAL_API_KEY"),
+		// AnthropicAPIKey:      os.Getenv("ANTHROPIC_API_KEY"),
+		// OpenAIAPIKey:         os.Getenv("OPENAI_API_KEY"),
+		// MistralAPIKey:        os.Getenv("MISTRAL_API_KEY"),
+		// PoolsideAPIKey:       os.Getenv("POOLSIDE_API_KEY"),
 		OpenWeatherMapAPIKey: os.Getenv("OPENWEATHERMAP_API_KEY"),
 		ToolsMaxConcurrent:   parseToolsMaxConcurrent(os.Getenv("TOOLS_MAX_CONCURRENT")),
 		ContextFullTurns:     parseContextFullTurns(os.Getenv("CONTEXT_FULL_TURNS")),
@@ -58,6 +60,7 @@ func Load(envFile string) (*Config, error) {
 	return cfg, nil
 }
 
+/*
 // RequireAnthropicKey returns the Anthropic API key or an error if missing.
 func (c *Config) RequireAnthropicKey() (string, error) {
 	return requireKey(c.AnthropicAPIKey, "ANTHROPIC_API_KEY")
@@ -73,12 +76,32 @@ func (c *Config) RequireMistralKey() (string, error) {
 	return requireKey(c.MistralAPIKey, "MISTRAL_API_KEY")
 }
 
+// RequirePoolsideKey returns the Poolside API key or an error if missing.
+func (c *Config) RequirePoolsideKey() (string, error) {
+	return requireKey(c.PoolsideAPIKey, "POOLSIDE_API_KEY")
+}
+	*/
+
 // RequireOpenWeatherMapKey returns the OpenWeatherMap API key or an error if missing.
 func (c *Config) RequireOpenWeatherMapKey() (string, error) {
 	return requireKey(c.OpenWeatherMapAPIKey, "OPENWEATHERMAP_API_KEY")
 }
 
 func requireKey(value, name string) (string, error) {
+	if value == "" {
+		return "", fmt.Errorf("missing required environment variable %q", name)
+	}
+	return value, nil
+}
+
+// GetKeyValue is a helper function to get an environment variable value or empty string if not set.
+func GetKeyValue(name string) string {
+	return os.Getenv(name)
+}
+
+// GetRequiredKeyValue is a helper function to get a required environment variable value or return error.
+func GetRequiredKeyValue(name string) (string, error) {
+	value := os.Getenv(name)	
 	if value == "" {
 		return "", fmt.Errorf("missing required environment variable %q", name)
 	}

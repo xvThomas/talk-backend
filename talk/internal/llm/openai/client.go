@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"fmt"
+
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
 
 	"github.com/openai/openai-go"

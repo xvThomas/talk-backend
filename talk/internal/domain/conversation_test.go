@@ -129,7 +129,7 @@ func newManager(client *stubClient, tools []Tool) (*ConversationManager, *stubUs
 	reporter := &stubUsageReporter{}
 	reporters := []UsageReporter{reporter}
 	store := &stubStore{}
-	mgr := NewConversationManager(client, "test-model", ProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return tools }, reporters, 2, -1)
+	mgr := NewConversationManager(client, "test-model", OLTPProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return tools }, reporters, 2, -1)
 	return mgr, reporter
 }
 
@@ -339,7 +339,7 @@ func TestConversation_ParallelToolExecution(t *testing.T) {
 	// Use maxConcurrentTools = 2 to test concurrency limiting
 	reporter := &stubUsageReporter{}
 	store := &stubStore{}
-	mgr := NewConversationManager(client, "test-model", ProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return []Tool{tool1, tool2, tool3} }, []UsageReporter{reporter}, 2, -1)
+	mgr := NewConversationManager(client, "test-model", OLTPProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return []Tool{tool1, tool2, tool3} }, []UsageReporter{reporter}, 2, -1)
 
 	answer, err := mgr.Chat(context.Background(), "run parallel tools")
 	if err != nil {
@@ -379,7 +379,7 @@ func TestConversation_SequentialWhenMaxConcurrentIsOne(t *testing.T) {
 	// Force sequential execution with maxConcurrentTools = 1
 	reporter := &stubUsageReporter{}
 	store := &stubStore{}
-	mgr := NewConversationManager(client, "test-model", ProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return []Tool{tool1, tool2} }, []UsageReporter{reporter}, 1, -1)
+	mgr := NewConversationManager(client, "test-model", OLTPProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return []Tool{tool1, tool2} }, []UsageReporter{reporter}, 1, -1)
 
 	answer, err := mgr.Chat(context.Background(), "run sequential tools")
 	if err != nil {
@@ -414,7 +414,7 @@ func TestConversation_OneToolMessagePerExecution(t *testing.T) {
 	mgr := NewConversationManager(
 		client,
 		"test-model",
-		ProviderAnthropic,
+		OLTPProviderAnthropic,
 		store,
 		store,
 		&stubPromptProvider{"system"},
@@ -475,7 +475,7 @@ func TestConversation_AssistantToolOnlyResponseGetsSummaryAndTurnID(t *testing.T
 	mgr := NewConversationManager(
 		client,
 		"test-model",
-		ProviderAnthropic,
+		OLTPProviderAnthropic,
 		store,
 		store,
 		&stubPromptProvider{"system"},
@@ -526,7 +526,7 @@ func TestBuildContextMessages_LeanModeUsesHistoryTurns(t *testing.T) {
 		},
 	}
 
-	mgr := NewConversationManager(&stubClient{}, "test-model", ProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return nil }, nil, 1, 0)
+	mgr := NewConversationManager(&stubClient{}, "test-model", OLTPProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return nil }, nil, 1, 0)
 
 	got := mgr.contextBuilder.BuildContextMessages(context.Background(), "t3")
 	if len(got) != 5 {
@@ -557,7 +557,7 @@ func TestBuildContextMessages_HybridKeepsLastNDetailedTurns(t *testing.T) {
 		},
 	}
 
-	mgr := NewConversationManager(&stubClient{}, "test-model", ProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return nil }, nil, 1, 1)
+	mgr := NewConversationManager(&stubClient{}, "test-model", OLTPProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return nil }, nil, 1, 1)
 
 	got := mgr.contextBuilder.BuildContextMessages(context.Background(), "t3")
 	if len(got) != 5 {
@@ -592,7 +592,7 @@ func TestConversation_ChatUsesExpectedContextSizesByMode(t *testing.T) {
 		client := newClient()
 		tool := &stubTool{name: "weather", result: map[string]any{"ok": true}}
 		store := &stubStore{}
-		mgr := NewConversationManager(client, "test-model", ProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return []Tool{tool} }, nil, 1, mode)
+		mgr := NewConversationManager(client, "test-model", OLTPProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return []Tool{tool} }, nil, 1, mode)
 
 		for _, input := range []string{"Q1", "Q2", "Q3"} {
 			if _, err := mgr.Chat(context.Background(), input); err != nil {

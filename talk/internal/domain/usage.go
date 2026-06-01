@@ -60,11 +60,11 @@ const (
 
 // APICallEvent is emitted after each individual Complete() invocation.
 type APICallEvent struct {
-	TraceID      string    // Shared trace ID for the parent turn
-	ParentSpanID string    // SpanID of the parent conversation_turn span
-	Provider     Provider  // LLM provider (anthropic, openai, mistral)
-	StartedAt    time.Time // When the API call started
-	EndedAt      time.Time // When the API call completed
+	TraceID      string       // Shared trace ID for the parent turn
+	ParentSpanID string       // SpanID of the parent conversation_turn span
+	Provider     OLTPProvider // LLM provider (anthropic, openai, mistral)
+	StartedAt    time.Time    // When the API call started
+	EndedAt      time.Time    // When the API call completed
 	Model        string
 	Kind         CallKind
 	Usage        Usage

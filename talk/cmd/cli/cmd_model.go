@@ -17,9 +17,9 @@ func (a *App) cmdModel() {
 	for i, m := range models {
 		d, _ := domain.Lookup(m)
 		if string(m) == a.CurrentModel {
-			a.Printf("  [%d] %s %s %s\n", i+1, cyan(fmt.Sprintf("%-14s", m)), faint("("+string(d.Provider)+")"), green("← current"))
+			a.Printf("  [%d] %s %s %s\n", i+1, cyan(fmt.Sprintf("%-14s", m)), faint("("+string(d.OLTPProvider)+")"), green("← current"))
 		} else {
-			a.Printf("  [%d] %-14s %s\n", i+1, m, faint("("+string(d.Provider)+")"))
+			a.Printf("  [%d] %-14s %s\n", i+1, m, faint("("+string(d.OLTPProvider)+")"))
 		}
 	}
 

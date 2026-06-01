@@ -15,7 +15,7 @@ func TestCmdModel_ValidSelection(t *testing.T) {
 	store := newFakeStore()
 	app.Store = store
 	app.Manager = domain.NewConversationManager(
-		fakeLlmClient{}, "sonnet-4.6", domain.ProviderAnthropic,
+		fakeLlmClient{}, "sonnet-4.6", domain.OLTPProviderAnthropic,
 		store, nil, &stubPromptProvider{}, func() []domain.Tool { return nil }, nil, 1, -1,
 	)
 
@@ -78,7 +78,7 @@ func TestCmdModel_RouterError(t *testing.T) {
 	store := newFakeStore()
 	app.Store = store
 	app.Manager = domain.NewConversationManager(
-		fakeLlmClient{}, "sonnet-4.6", domain.ProviderAnthropic,
+		fakeLlmClient{}, "sonnet-4.6", domain.OLTPProviderAnthropic,
 		store, nil, &stubPromptProvider{}, func() []domain.Tool { return nil }, nil, 1, -1,
 	)
 

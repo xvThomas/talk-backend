@@ -23,7 +23,8 @@ func TestRouter_MissingAPIKeyReturnsError(t *testing.T) {
 }
 
 func TestRouter_ValidConfigReturnsClient(t *testing.T) {
-	r := NewLLMRouter(&config.Config{AnthropicAPIKey: "test-key"})
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	r := NewLLMRouter(&config.Config{})
 	client, err := r.Get("sonnet-4.6")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -34,7 +35,8 @@ func TestRouter_ValidConfigReturnsClient(t *testing.T) {
 }
 
 func TestRouter_OpenAIProviderReturnsClient(t *testing.T) {
-	r := NewLLMRouter(&config.Config{OpenAIAPIKey: "test-key"})
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	r := NewLLMRouter(&config.Config{})
 	client, err := r.Get("gpt-5.4")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -45,7 +47,8 @@ func TestRouter_OpenAIProviderReturnsClient(t *testing.T) {
 }
 
 func TestRouter_MistralProviderReturnsClient(t *testing.T) {
-	r := NewLLMRouter(&config.Config{MistralAPIKey: "test-key"})
+	t.Setenv("MISTRAL_API_KEY", "test-key")
+	r := NewLLMRouter(&config.Config{})
 	client, err := r.Get("mistral-small")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

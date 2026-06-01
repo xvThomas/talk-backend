@@ -3,8 +3,8 @@ package router
 import (
 	"fmt"
 
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/config"
+	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/llm/anthropic"
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/llm/openai"
 )
@@ -26,30 +26,18 @@ func (r *Router) Get(model domain.Model) (domain.LlmClient, error) {
 		return nil, err
 	}
 
-	switch d.Provider {
-	case domain.ProviderAnthropic:
-		key, err := r.cfg.RequireAnthropicKey()
-		if err != nil {
-			return nil, err
-		}
+	key, err := config.GetRequiredKeyValue(d.APIKeyName)
+	if err != nil {
+		return nil, err
+	}
+
+	switch d.APIClient {
+	case domain.APIClientAnthropic:
 		return anthropic.NewAnthropicClient(key, d.APIModelID), nil
-
-	case domain.ProviderOpenAI:
-		key, err := r.cfg.RequireOpenAIKey()
-		if err != nil {
-			return nil, err
-		}
-		return openai.NewOpenAIClient(key, d.APIModelID, ""), nil
-
-	case domain.ProviderMistral:
-		key, err := r.cfg.RequireMistralKey()
-		if err != nil {
-			return nil, err
-		}
-		// Mistral is OpenAI-compatible, but requires a custom base URL.
-		return openai.NewOpenAIClient(key, d.APIModelID, "https://api.mistral.ai/v1"), nil
-
+	case domain.APIClientOpenAI:
+		// Standard OpenAI-compatible provider
+		return openai.NewOpenAIClient(key, d.APIModelID, d.URL), nil
 	default:
-		return nil, fmt.Errorf("unsupported provider %q", d.Provider)
+		return nil, fmt.Errorf("unsupported API client %q", d.APIClient)
 	}
 }
