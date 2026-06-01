@@ -528,7 +528,7 @@ func TestBuildContextMessages_LeanModeUsesHistoryTurns(t *testing.T) {
 
 	mgr := NewConversationManager(&stubClient{}, "test-model", ProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return nil }, nil, 1, 0)
 
-	got := mgr.buildContextMessages(context.Background(), "t3")
+	got := mgr.contextBuilder.BuildContextMessages(context.Background(), "t3")
 	if len(got) != 5 {
 		t.Fatalf("expected 5 messages, got %d", len(got))
 	}
@@ -559,7 +559,7 @@ func TestBuildContextMessages_HybridKeepsLastNDetailedTurns(t *testing.T) {
 
 	mgr := NewConversationManager(&stubClient{}, "test-model", ProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return nil }, nil, 1, 1)
 
-	got := mgr.buildContextMessages(context.Background(), "t3")
+	got := mgr.contextBuilder.BuildContextMessages(context.Background(), "t3")
 	if len(got) != 5 {
 		t.Fatalf("expected 5 messages, got %d", len(got))
 	}
