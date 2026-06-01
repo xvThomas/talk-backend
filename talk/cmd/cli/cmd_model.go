@@ -14,12 +14,12 @@ func (a *App) cmdModel() {
 	slices.Sort(models)
 
 	a.Println("\n" + emphasize("Available models:"))
-	for i, m := range models {
-		d, _ := domain.Lookup(m)
-		if string(m) == a.CurrentModel {
-			a.Printf("  [%d] %s %s %s\n", i+1, cyan(fmt.Sprintf("%-14s", m)), faint("("+string(d.OLTPProvider)+")"), green("← current"))
+	for i, model := range models {
+		//d, _ := domain.Lookup(model)
+		if string(model) == a.CurrentModel {
+			a.Printf("  [%d] %s%s\n", i+1, cyan(fmt.Sprintf("%-14s", model)), green("← current"))
 		} else {
-			a.Printf("  [%d] %-14s %s\n", i+1, m, faint("("+string(d.OLTPProvider)+")"))
+			a.Printf("  [%d] %-14s\n", i+1, model)
 		}
 	}
 

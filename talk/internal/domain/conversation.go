@@ -126,7 +126,7 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 		m.reportAPICall(APICallEvent{
 			TraceID:      turnTraceID,
 			ParentSpanID: turnSpanID,
-			Provider:     m.provider,
+			OLTPProvider: m.provider,
 			StartedAt:    callStartedAt,
 			EndedAt:      lastCallEndedAt,
 			Model:        m.modelID,

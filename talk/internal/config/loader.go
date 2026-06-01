@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
+	//"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -28,7 +28,7 @@ type Config struct {
 	ConsoleUsageReporter bool // CONSOLE_USAGE_REPORTER=true/false (default: true)
 
 	// MCP server configuration
-	McpAllowedOrigins []string // MCP_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000 (comma-separated)
+	//McpAllowedOrigins []string // MCP_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000 (comma-separated)
 }
 
 // Load reads the .env file (if present) then reads environment variables.
@@ -54,7 +54,7 @@ func Load(envFile string) (*Config, error) {
 		ConsoleUsageReporter: parseConsoleUsageReporter(os.Getenv("CONSOLE_USAGE_REPORTER")),
 
 		// MCP server configuration
-		McpAllowedOrigins: parseMcpAllowedOrigins(os.Getenv("MCP_ALLOWED_ORIGINS")),
+		//McpAllowedOrigins: parseMcpAllowedOrigins(os.Getenv("MCP_ALLOWED_ORIGINS")),
 	}
 
 	return cfg, nil
@@ -110,6 +110,7 @@ func GetRequiredKeyValue(name string) (string, error) {
 
 // parseMcpAllowedOrigins parses MCP_ALLOWED_ORIGINS as a comma-separated list.
 // Returns nil if the variable is empty (allow all origins).
+/*
 func parseMcpAllowedOrigins(value string) []string {
 	if value == "" {
 		return nil
@@ -123,6 +124,7 @@ func parseMcpAllowedOrigins(value string) []string {
 	}
 	return origins
 }
+	*/
 
 // parseToolsMaxConcurrent parses TOOLS_MAX_CONCURRENT with fallback to 4.
 func parseToolsMaxConcurrent(value string) int {

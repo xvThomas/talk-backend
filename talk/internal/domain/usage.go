@@ -62,7 +62,7 @@ const (
 type APICallEvent struct {
 	TraceID      string       // Shared trace ID for the parent turn
 	ParentSpanID string       // SpanID of the parent conversation_turn span
-	Provider     OLTPProvider // LLM provider (anthropic, openai, mistral)
+	OLTPProvider OLTPProvider // LLM provider (anthropic, openai, mistral, _other)
 	StartedAt    time.Time    // When the API call started
 	EndedAt      time.Time    // When the API call completed
 	Model        string

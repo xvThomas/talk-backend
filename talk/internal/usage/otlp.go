@@ -94,8 +94,8 @@ func (l *LangfuseUsageReporter) apiCallToOTLP(event domain.APICallEvent) (*OTLPT
 	spanID := generateSpanID()
 	parentSpanID := event.ParentSpanID
 
-	// Provider constants are defined to match OTel GenAI semantic conventions directly.
-	system := string(event.Provider)
+	// OTLPProvider constants are defined to match OTel GenAI semantic conventions directly.
+	system := string(event.OLTPProvider)
 
 	attributes := []OTLPAttribute{
 		// GenAI semantic conventions
