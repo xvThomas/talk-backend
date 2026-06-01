@@ -64,12 +64,6 @@ func (m *ConversationManager) SetScope(scope SessionScope) {
 	m.contextBuilder.sessionID = scope.SessionID
 }
 
-// sessionID returns the session ID.
-func (m *ConversationManager) sessionID() string { return m.scope.SessionID }
-
-// userID returns the user ID.
-func (m *ConversationManager) userID() string { return m.scope.UserID }
-
 // reportAPICall calls OnAPICall on all reporters in parallel.
 func (m *ConversationManager) reportAPICall(event APICallEvent) {
 	if len(m.reporters) == 0 {
@@ -160,8 +154,8 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 			Input:        conversationInput,
 			Output:       formatAPICallOutput(response.Content, response.ToolCalls),
 			ToolCalls:    response.ToolCalls,
-			SessionID:    m.sessionID(),
-			UserID:       m.userID(),
+			SessionID:    m.scope.SessionID,
+			UserID:       m.scope.UserID,
 		})
 
 		totalUsage = totalUsage.Add(usage)
@@ -188,8 +182,8 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 				Input:      userInput,
 				Output:     response.Content,
 				ToolCalls:  allToolCalls,
-				SessionID:  m.sessionID(),
-				UserID:     m.userID(),
+				SessionID:  m.scope.SessionID,
+				UserID:     m.scope.UserID,
 			})
 			return response.Content, nil
 		}
