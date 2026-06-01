@@ -61,8 +61,8 @@ func TestHandleSlashCommand_Memory(t *testing.T) {
 	app.handleSlashCommand(context.Background(), "/memory")
 
 	out := p.Output()
-	// fakeStore doesn't implement SessionBrowser
-	if !strings.Contains(out, "session history not available") {
+	// With empty session browser, no history exists
+	if !strings.Contains(out, "no history for current session") {
 		t.Errorf("expected fallback message, got: %s", out)
 	}
 }
@@ -82,8 +82,6 @@ func TestHandleSlashCommand_SessionUnknownSubcommand(t *testing.T) {
 func TestHandleSlashCommand_Session(t *testing.T) {
 	p := &spyPrinter{}
 	app := newTestApp(p)
-	store := newFakeSessionStore()
-	app.Store = store
 
 	app.handleSlashCommand(context.Background(), "/session new")
 

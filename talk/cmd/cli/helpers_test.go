@@ -53,55 +53,42 @@ func (s *stubPromptProvider) SystemPrompt(_ context.Context) (string, error) {
 
 // fakeStore implements domain.MessageStore with minimal in-memory state.
 type fakeStore struct {
-	messages  []domain.Message
-	sessionID string
-	userID    string
+	messages map[string][]domain.Message
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{sessionID: "test-session-id", userID: "test-user"}
+	return &fakeStore{messages: make(map[string][]domain.Message)}
 }
 
-func (s *fakeStore) Add(msg domain.Message) { s.messages = append(s.messages, msg) }
-func (s *fakeStore) All() []domain.Message  { return s.messages }
-func (s *fakeStore) Clear()                 { s.messages = nil }
-func (s *fakeStore) SessionID() string      { return s.sessionID }
-func (s *fakeStore) UserID() string         { return s.userID }
+func (s *fakeStore) AddMessage(msg domain.Message, scope domain.SessionScope) {
+	s.messages[scope.SessionID] = append(s.messages[scope.SessionID], msg)
+}
+func (s *fakeStore) AllMessages(sessionID string) []domain.Message { return s.messages[sessionID] }
+func (s *fakeStore) ClearMessages(sessionID string)                { delete(s.messages, sessionID) }
 
-// fakeSessionStore implements both domain.MessageStore and domain.SessionBrowser.
-type fakeSessionStore struct {
-	fakeStore
+// fakeSessionBrowser implements domain.SessionBrowser.
+type fakeSessionBrowser struct {
 	sessions  []domain.SessionSummary
 	turns     map[string][]domain.HistoryTurn
-	setErr    error
 	deleteErr error
 	deleted   []string
 }
 
-func newFakeSessionStore() *fakeSessionStore {
-	return &fakeSessionStore{
-		fakeStore: fakeStore{sessionID: "abcd1234-0000-0000-0000-000000000000", userID: "test-user"},
-		turns:     make(map[string][]domain.HistoryTurn),
+func newFakeSessionBrowser() *fakeSessionBrowser {
+	return &fakeSessionBrowser{
+		turns: make(map[string][]domain.HistoryTurn),
 	}
 }
 
-func (s *fakeSessionStore) SetSession(_ context.Context, id string) error {
-	if s.setErr != nil {
-		return s.setErr
-	}
-	s.sessionID = id
-	return nil
-}
-
-func (s *fakeSessionStore) ListSessions(_ context.Context, _ string) ([]domain.SessionSummary, error) {
+func (s *fakeSessionBrowser) ListSessions(_ context.Context, _ string) ([]domain.SessionSummary, error) {
 	return s.sessions, nil
 }
 
-func (s *fakeSessionStore) LoadHistoryTurnsFromSession(_ context.Context, id string) ([]domain.HistoryTurn, error) {
+func (s *fakeSessionBrowser) LoadHistoryTurnsFromSession(_ context.Context, id string) ([]domain.HistoryTurn, error) {
 	return s.turns[id], nil
 }
 
-func (s *fakeSessionStore) DeleteSession(_ context.Context, id string) error {
+func (s *fakeSessionBrowser) DeleteSession(_ context.Context, id string) error {
 	if s.deleteErr != nil {
 		return s.deleteErr
 	}
@@ -177,7 +164,9 @@ func (fakeLlmClient) Complete(_ context.Context, _ string, _ []domain.Message, _
 func newTestApp(p *spyPrinter) *App {
 	return &App{
 		Printer:      p,
-		Store:        newFakeStore(),
+		Scope:        domain.NewSessionScope("test-session-id", "test-user"),
+		Messages:     newFakeStore(),
+		Sessions:     newFakeSessionBrowser(),
 		PP:           &stubPromptProvider{text: "You are a helpful assistant."},
 		CurrentModel: "sonnet-4.6",
 		LR:           newScriptReader(), // empty reader by default

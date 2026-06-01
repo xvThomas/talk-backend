@@ -30,27 +30,16 @@ func (a *App) cmdSession(ctx context.Context, args string) {
 }
 
 func (a *App) cmdSessionNew(ctx context.Context) {
-	sb, ok := a.Store.(domain.SessionBrowser)
-	if !ok {
-		a.Println(faint("(session management not available)"))
-		return
-	}
 	newID := domain.GenerateSessionID()
-	if err := sb.SetSession(ctx, newID); err != nil {
-		a.Errorf("%s%s\n", red("Error creating session: "), err.Error())
-		return
+	a.Scope = domain.NewSessionScope(newID, a.Scope.UserID)
+	if a.Manager != nil {
+		a.Manager.SetScope(a.Scope)
 	}
 	a.Printf("%s\n", green("✓ New session created."))
 }
 
 func (a *App) cmdSessionList(ctx context.Context) {
-	sb, ok := a.Store.(domain.SessionBrowser)
-	if !ok {
-		a.Println(faint("(session management not available)"))
-		return
-	}
-
-	sessions, err := sb.ListSessions(ctx, a.Store.UserID())
+	sessions, err := a.Sessions.ListSessions(ctx, a.Scope.UserID)
 	if err != nil {
 		a.Errorf("%s%s\n", red("Error: "), err.Error())
 		return
@@ -62,7 +51,7 @@ func (a *App) cmdSessionList(ctx context.Context) {
 	} else {
 		for i, s := range sessions {
 			marker := ""
-			if s.ID == a.Store.SessionID() {
+			if s.ID == a.Scope.SessionID {
 				marker = " " + green("← current")
 			}
 			title := s.Title
@@ -93,9 +82,9 @@ func (a *App) cmdSessionList(ctx context.Context) {
 		return
 	}
 	selected := sessions[n-1].ID
-	if err := sb.SetSession(ctx, selected); err != nil {
-		a.Errorf("%s%s\n", red("Error switching session: "), err.Error())
-		return
+	a.Scope = domain.NewSessionScope(selected, a.Scope.UserID)
+	if a.Manager != nil {
+		a.Manager.SetScope(a.Scope)
 	}
 	title := sessions[n-1].Title
 	if title == "" {
@@ -105,13 +94,7 @@ func (a *App) cmdSessionList(ctx context.Context) {
 }
 
 func (a *App) cmdSessionRemove(ctx context.Context) {
-	sb, ok := a.Store.(domain.SessionBrowser)
-	if !ok {
-		a.Println(faint("(session management not available)"))
-		return
-	}
-
-	sessions, err := sb.ListSessions(ctx, a.Store.UserID())
+	sessions, err := a.Sessions.ListSessions(ctx, a.Scope.UserID)
 	if err != nil {
 		a.Errorf("%s%s\n", red("Error: "), err.Error())
 		return
@@ -124,7 +107,7 @@ func (a *App) cmdSessionRemove(ctx context.Context) {
 	a.Println("\n" + emphasize("Sessions:"))
 	for i, s := range sessions {
 		marker := ""
-		if s.ID == a.Store.SessionID() {
+		if s.ID == a.Scope.SessionID {
 			marker = " " + green("← current")
 		}
 		title := s.Title
@@ -150,12 +133,12 @@ func (a *App) cmdSessionRemove(ctx context.Context) {
 	}
 
 	selected := sessions[n-1]
-	if selected.ID == a.Store.SessionID() {
+	if selected.ID == a.Scope.SessionID {
 		a.Println(yellow("Cannot remove the current session."))
 		return
 	}
 
-	if err := sb.DeleteSession(ctx, selected.ID); err != nil {
+	if err := a.Sessions.DeleteSession(ctx, selected.ID); err != nil {
 		a.Errorf("%s%s\n", red("Error removing session: "), err.Error())
 		return
 	}
@@ -167,12 +150,7 @@ func (a *App) cmdSessionRemove(ctx context.Context) {
 }
 
 func (a *App) cmdMemory(ctx context.Context) {
-	sb, ok := a.Store.(domain.SessionBrowser)
-	if !ok {
-		a.Println(faint("(session history not available)"))
-		return
-	}
-	turns, err := sb.LoadHistoryTurnsFromSession(ctx, a.Store.SessionID())
+	turns, err := a.Sessions.LoadHistoryTurnsFromSession(ctx, a.Scope.SessionID)
 	if err != nil {
 		a.Errorf("%s%s\n", red("Error: "), err.Error())
 		return
@@ -183,9 +161,9 @@ func (a *App) cmdMemory(ctx context.Context) {
 	}
 	// Resolve session title.
 	title := ""
-	if sessions, err := sb.ListSessions(ctx, a.Store.UserID()); err == nil {
+	if sessions, err := a.Sessions.ListSessions(ctx, a.Scope.UserID); err == nil {
 		for _, s := range sessions {
-			if s.ID == a.Store.SessionID() {
+			if s.ID == a.Scope.SessionID {
 				title = s.Title
 				break
 			}

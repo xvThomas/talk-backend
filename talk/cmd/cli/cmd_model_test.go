@@ -13,11 +13,13 @@ func TestCmdModel_ValidSelection(t *testing.T) {
 	p := &spyPrinter{}
 	app := newTestApp(p)
 	store := newFakeStore()
-	app.Store = store
-	app.Manager = domain.NewConversationManager(
-		fakeLlmClient{}, "sonnet-4.6", domain.OLTPProviderAnthropic,
-		store, nil, &stubPromptProvider{}, func() []domain.Tool { return nil }, nil, 1, -1,
-	)
+	app.Messages = store
+	app.Manager = domain.NewConversationManager(domain.ConversationManagerConfig{
+		Client: fakeLlmClient{}, ModelID: "sonnet-4.6", Scope: app.Scope,
+		Provider: domain.OLTPProviderAnthropic, Store: store,
+		SessionBrowser: newFakeSessionBrowser(), PromptProvider: &stubPromptProvider{},
+		Tools: func() []domain.Tool { return nil }, MaxConcurrentTools: 1, ContextFullTurns: -1,
+	})
 
 	// Find the index of a model different from the current one.
 	models := domain.SupportedModels()
@@ -76,11 +78,13 @@ func TestCmdModel_RouterError(t *testing.T) {
 	app := newTestApp(p)
 	app.Router = &fakeRouter{err: fmt.Errorf("missing API key")}
 	store := newFakeStore()
-	app.Store = store
-	app.Manager = domain.NewConversationManager(
-		fakeLlmClient{}, "sonnet-4.6", domain.OLTPProviderAnthropic,
-		store, nil, &stubPromptProvider{}, func() []domain.Tool { return nil }, nil, 1, -1,
-	)
+	app.Messages = store
+	app.Manager = domain.NewConversationManager(domain.ConversationManagerConfig{
+		Client: fakeLlmClient{}, ModelID: "sonnet-4.6", Scope: app.Scope,
+		Provider: domain.OLTPProviderAnthropic, Store: store,
+		SessionBrowser: newFakeSessionBrowser(), PromptProvider: &stubPromptProvider{},
+		Tools: func() []domain.Tool { return nil }, MaxConcurrentTools: 1, ContextFullTurns: -1,
+	})
 
 	// Pick any valid model index
 	app.LR = newScriptReader("1")

@@ -16,50 +16,50 @@ type sessionData struct {
 	createdAt  time.Time
 }
 
-// InMemoryStore is a thread-safe in-memory implementation of domain.MessageStore and domain.SessionBrowser.
-type InMemoryStore struct {
-	mu        sync.Mutex
-	sessions  map[string]*sessionData
-	sessionID string
-	userID    string
+// core is the shared internal storage for both MessageRepository and SessionBrowser.
+type core struct {
+	mu       sync.Mutex
+	sessions map[string]*sessionData
 }
 
-// NewInMemoryStore creates an empty in-memory Store with the given session and user identifiers.
-// The session is not materialized until the first user message is added.
-func NewInMemoryStore(sessionID, userID string) *InMemoryStore {
-	return &InMemoryStore{
-		sessions:  make(map[string]*sessionData),
-		sessionID: sessionID,
-		userID:    userID,
-	}
+// MessageRepository implements domain.MessageStore backed by in-memory storage.
+type MessageRepository struct{ *core }
+
+// Browser implements domain.SessionBrowser backed by in-memory storage.
+type Browser struct{ *core }
+
+// New creates a pair of in-memory stores sharing the same underlying data.
+func New() (*MessageRepository, *Browser) {
+	c := &core{sessions: make(map[string]*sessionData)}
+	return &MessageRepository{c}, &Browser{c}
 }
 
-var _ domain.MessageStore = (*InMemoryStore)(nil)
-var _ domain.SessionBrowser = (*InMemoryStore)(nil)
+var _ domain.MessageStore = (*MessageRepository)(nil)
+var _ domain.SessionBrowser = (*Browser)(nil)
 
-// Add appends a message to the current session.
+// AddMessage appends a message to the given session.
 // The session is materialized only when the first user message is added.
 // The title is set from the first user message content.
-func (s *InMemoryStore) Add(msg domain.Message) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sd, exists := s.sessions[s.sessionID]
+func (r *MessageRepository) AddMessage(msg domain.Message, scope domain.SessionScope) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	sd, exists := r.sessions[scope.SessionID]
 	if !exists {
 		if msg.Role != domain.RoleUser {
 			return
 		}
 		sd = &sessionData{title: msg.Content, createdAt: time.Now()}
-		s.sessions[s.sessionID] = sd
+		r.sessions[scope.SessionID] = sd
 	}
 	sd.messages = append(sd.messages, msg)
 	sd.timestamps = append(sd.timestamps, time.Now())
 }
 
-// All returns a copy of all stored messages for the current session.
-func (s *InMemoryStore) All() []domain.Message {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sd, exists := s.sessions[s.sessionID]
+// AllMessages returns a copy of all stored messages for the given session.
+func (r *MessageRepository) AllMessages(sessionID string) []domain.Message {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	sd, exists := r.sessions[sessionID]
 	if !exists {
 		return nil
 	}
@@ -68,40 +68,21 @@ func (s *InMemoryStore) All() []domain.Message {
 	return result
 }
 
-// Clear removes all messages from the current session.
-func (s *InMemoryStore) Clear() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if sd, exists := s.sessions[s.sessionID]; exists {
+// ClearMessages removes all messages from the given session.
+func (r *MessageRepository) ClearMessages(sessionID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if sd, exists := r.sessions[sessionID]; exists {
 		sd.messages = nil
 	}
 }
 
-// SessionID returns the current session identifier.
-func (s *InMemoryStore) SessionID() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.sessionID
-}
-
-// UserID returns the user identifier.
-func (s *InMemoryStore) UserID() string { return s.userID }
-
-// SetSession switches to the given session. Does not create a new session;
-// the session will be materialized on the first message added.
-func (s *InMemoryStore) SetSession(_ context.Context, sessionID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sessionID = sessionID
-	return nil
-}
-
-// ListSessions returns all known sessions for the user.
-func (s *InMemoryStore) ListSessions(_ context.Context, _ string) ([]domain.SessionSummary, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	summaries := make([]domain.SessionSummary, 0, len(s.sessions))
-	for id, sd := range s.sessions {
+// ListSessions returns all known sessions.
+func (b *Browser) ListSessions(_ context.Context, _ string) ([]domain.SessionSummary, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	summaries := make([]domain.SessionSummary, 0, len(b.sessions))
+	for id, sd := range b.sessions {
 		turnCount := 0
 		for _, m := range sd.messages {
 			if m.Role == domain.RoleUser {
@@ -119,10 +100,10 @@ func (s *InMemoryStore) ListSessions(_ context.Context, _ string) ([]domain.Sess
 }
 
 // LoadHistoryTurnsFromSession returns the conversation history for the given session as question/answer pairs.
-func (s *InMemoryStore) LoadHistoryTurnsFromSession(_ context.Context, sessionID string) ([]domain.HistoryTurn, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sd, exists := s.sessions[sessionID]
+func (b *Browser) LoadHistoryTurnsFromSession(_ context.Context, sessionID string) ([]domain.HistoryTurn, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	sd, exists := b.sessions[sessionID]
 	if !exists {
 		return nil, nil
 	}
@@ -149,12 +130,9 @@ func (s *InMemoryStore) LoadHistoryTurnsFromSession(_ context.Context, sessionID
 }
 
 // DeleteSession removes a session and its data from memory.
-func (s *InMemoryStore) DeleteSession(_ context.Context, sessionID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.sessions, sessionID)
-	if sessionID == s.sessionID {
-		s.sessionID = ""
-	}
+func (b *Browser) DeleteSession(_ context.Context, sessionID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.sessions, sessionID)
 	return nil
 }

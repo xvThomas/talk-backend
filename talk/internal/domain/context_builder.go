@@ -7,14 +7,16 @@ import "context"
 type ContextBuilder struct {
 	store          MessageStore
 	sessionBrowser SessionBrowser
+	sessionID      string
 	contextFull    int // -1 full, 0 lean, N hybrid
 }
 
 // NewContextBuilder creates a ContextBuilder.
-func NewContextBuilder(store MessageStore, sessionBrowser SessionBrowser, contextFullTurns int) *ContextBuilder {
+func NewContextBuilder(store MessageStore, sessionBrowser SessionBrowser, sessionID string, contextFullTurns int) *ContextBuilder {
 	return &ContextBuilder{
 		store:          store,
 		sessionBrowser: sessionBrowser,
+		sessionID:      sessionID,
 		contextFull:    contextFullTurns,
 	}
 }
@@ -23,12 +25,12 @@ func NewContextBuilder(store MessageStore, sessionBrowser SessionBrowser, contex
 // When contextFull is negative or no session browser is configured, all in-memory messages are returned.
 // Otherwise historical turns are loaded and merged with the detailed messages from the current session.
 func (b *ContextBuilder) BuildContextMessages(ctx context.Context, currentTurnID string) []Message {
-	allMessages := b.store.All()
+	allMessages := b.store.AllMessages(b.sessionID)
 	if b.contextFull < 0 || b.sessionBrowser == nil {
 		return allMessages
 	}
 
-	historyTurns, err := b.sessionBrowser.LoadHistoryTurnsFromSession(ctx, b.store.SessionID())
+	historyTurns, err := b.sessionBrowser.LoadHistoryTurnsFromSession(ctx, b.sessionID)
 	if err != nil {
 		// Fail open to keep the conversation functional when history loading fails.
 		return allMessages

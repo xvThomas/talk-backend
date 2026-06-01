@@ -53,74 +53,67 @@ CREATE INDEX IF NOT EXISTS idx_messages_tool_call_id ON messages(tool_call_id);
 CREATE INDEX IF NOT EXISTS idx_history_turns_session_id ON history_turns(session_id);
 `
 
-// Store is a persistent SQLite implementation of domain.MessageStore and domain.SessionBrowser.
-type Store struct {
-	db        *sql.DB
-	mu        sync.Mutex
-	sessionID string
-	userID    string
-	// messages caches current session messages in memory for fast All() access.
-	messages []domain.Message
-	// materialized tracks whether the current session exists in the database.
-	materialized bool
+// db is the shared database handle for both MessageRepository and Browser.
+type db struct {
+	conn *sql.DB
+	mu   sync.Mutex
 }
 
-// NewStore opens (or creates) a SQLite database at dbPath and returns a Store.
-func NewStore(dbPath, sessionID, userID string) (*Store, error) {
-	db, err := sql.Open("sqlite", dbPath)
+// MessageRepository implements domain.MessageStore backed by SQLite.
+type MessageRepository struct{ *db }
+
+// Browser implements domain.SessionBrowser backed by SQLite.
+type Browser struct{ *db }
+
+var _ domain.MessageStore = (*MessageRepository)(nil)
+var _ domain.SessionBrowser = (*Browser)(nil)
+
+// New opens (or creates) a SQLite database at dbPath and returns a MessageRepository and Browser.
+func New(dbPath string) (*MessageRepository, *Browser, error) {
+	conn, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("opening sqlite db: %w", err)
+		return nil, nil, fmt.Errorf("opening sqlite db: %w", err)
 	}
 	// Enable WAL mode for better concurrency.
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("setting WAL mode: %w", err)
+	if _, err := conn.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		_ = conn.Close()
+		return nil, nil, fmt.Errorf("setting WAL mode: %w", err)
 	}
-	if _, err := db.Exec(schema); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("creating schema: %w", err)
+	if _, err := conn.Exec(schema); err != nil {
+		_ = conn.Close()
+		return nil, nil, fmt.Errorf("creating schema: %w", err)
 	}
 
-	s := &Store{
-		db:        db,
-		sessionID: sessionID,
-		userID:    userID,
-	}
-	// If the session already exists in DB, load its messages.
-	if err := s.loadCurrentSession(); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return s, nil
+	d := &db{conn: conn}
+	return &MessageRepository{d}, &Browser{d}, nil
 }
 
 // DB returns the underlying database connection for sharing with other components.
-func (s *Store) DB() *sql.DB { return s.db }
+func (d *db) DB() *sql.DB { return d.conn }
 
 // Close closes the underlying database connection.
-func (s *Store) Close() error {
-	return s.db.Close()
-}
+func (d *db) Close() error { return d.conn.Close() }
 
-// Add appends a message to the current session.
+// AddMessage appends a message to the given session.
 // The session is materialized in the database only on the first user message.
-func (s *Store) Add(msg domain.Message) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (r *MessageRepository) AddMessage(msg domain.Message, scope domain.SessionScope) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	if !s.materialized {
+	// Check if session is materialized.
+	materialized := r.isSessionMaterialized(scope.SessionID)
+	if !materialized {
 		if msg.Role != domain.RoleUser {
 			return
 		}
 		// Materialize session with title = first user message.
 		title := msg.Content
-		if _, err := s.db.Exec(
+		if _, err := r.conn.Exec(
 			"INSERT INTO sessions (id, user_id, title, created_at) VALUES (?, ?, ?, ?)",
-			s.sessionID, s.userID, title, time.Now().UTC().Format(timeFormat),
+			scope.SessionID, scope.UserID, title, time.Now().UTC().Format(timeFormat),
 		); err != nil {
 			return
 		}
-		s.materialized = true
 	}
 
 	now := time.Now().UTC().Format(timeFormat)
@@ -151,20 +144,28 @@ func (s *Store) Add(msg domain.Message) {
 		}
 	}
 
-	if _, err := s.db.Exec(
+	if _, err := r.conn.Exec(
 		"INSERT INTO messages (session_id, role, content, tool_name, tool_input, tool_output, tool_call_id, turn_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		s.sessionID, string(msg.Role), content, toolName, toolInput, toolOutput, toolCallID, msg.TurnID, now,
+		scope.SessionID, string(msg.Role), content, toolName, toolInput, toolOutput, toolCallID, msg.TurnID, now,
 	); err != nil {
 		return
 	}
 
-	_ = s.upsertHistoryTurnLocked(msg, now)
-	s.messages = append(s.messages, msg)
+	r.upsertHistoryTurn(scope.SessionID, msg, now)
 }
 
-func (s *Store) upsertHistoryTurnLocked(msg domain.Message, now string) error {
+func (r *MessageRepository) isSessionMaterialized(sessionID string) bool {
+	var count int
+	err := r.conn.QueryRow("SELECT COUNT(*) FROM sessions WHERE id = ?", sessionID).Scan(&count)
+	if err != nil {
+		return false
+	}
+	return count > 0
+}
+
+func (r *MessageRepository) upsertHistoryTurn(sessionID string, msg domain.Message, now string) {
 	if msg.TurnID == "" {
-		return nil
+		return
 	}
 
 	question := ""
@@ -181,10 +182,10 @@ func (s *Store) upsertHistoryTurnLocked(msg domain.Message, now string) error {
 		answerAt = now
 	}
 	if question == "" && answer == "" {
-		return nil
+		return
 	}
 
-	_, err := s.db.Exec(
+	_, _ = r.conn.Exec(
 		`INSERT INTO history_turns (session_id, turn_id, question, answer, question_at, answer_at)
 		 VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(session_id, turn_id) DO UPDATE SET
@@ -192,63 +193,89 @@ func (s *Store) upsertHistoryTurnLocked(msg domain.Message, now string) error {
 		   answer = CASE WHEN excluded.answer <> '' THEN excluded.answer ELSE history_turns.answer END,
 		   question_at = COALESCE(excluded.question_at, history_turns.question_at),
 		   answer_at = COALESCE(excluded.answer_at, history_turns.answer_at)`,
-		s.sessionID,
+		sessionID,
 		msg.TurnID,
 		question,
 		answer,
 		questionAt,
 		answerAt,
 	)
-	return err
 }
 
-// All returns all messages for the current session.
-func (s *Store) All() []domain.Message {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.messages) == 0 {
+// AllMessages returns all messages for the given session.
+func (r *MessageRepository) AllMessages(sessionID string) []domain.Message {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	rows, err := r.conn.Query(
+		"SELECT role, content, tool_name, tool_input, tool_output, tool_call_id, turn_id FROM messages WHERE session_id = ? ORDER BY id",
+		sessionID,
+	)
+	if err != nil {
 		return nil
 	}
-	result := make([]domain.Message, len(s.messages))
-	copy(result, s.messages)
-	return result
+	defer func() { _ = rows.Close() }()
+
+	var messages []domain.Message
+	for rows.Next() {
+		var role, content, toolName, toolInput, toolOutput, toolCallID, turnID string
+		if err := rows.Scan(&role, &content, &toolName, &toolInput, &toolOutput, &toolCallID, &turnID); err != nil {
+			return nil
+		}
+		msg := domain.Message{
+			Role:    domain.Role(role),
+			Content: content,
+			TurnID:  turnID,
+		}
+
+		switch msg.Role {
+		case domain.RoleAssistant:
+			if toolInput != "" {
+				var calls []domain.ToolCall
+				if err := json.Unmarshal([]byte(toolInput), &calls); err == nil {
+					msg.ToolCalls = calls
+				}
+			}
+		case domain.RoleTool:
+			if toolName != "" || toolInput != "" || toolOutput != "" || toolCallID != "" {
+				var input map[string]any
+				if toolInput != "" {
+					_ = json.Unmarshal([]byte(toolInput), &input)
+				}
+				msg.ToolCalls = append(msg.ToolCalls, domain.ToolCall{
+					ID:    toolCallID,
+					Name:  toolName,
+					Input: input,
+				})
+				msg.ToolResults = append(msg.ToolResults, domain.ToolResult{
+					ToolCallID: toolCallID,
+					Content:    toolOutput,
+				})
+			}
+		}
+
+		messages = append(messages, msg)
+	}
+	if len(messages) == 0 {
+		return nil
+	}
+	return messages
 }
 
-// Clear removes all messages from the current session (in DB and in memory).
-func (s *Store) Clear() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, _ = s.db.Exec("DELETE FROM messages WHERE session_id = ?", s.sessionID)
-	_, _ = s.db.Exec("DELETE FROM history_turns WHERE session_id = ?", s.sessionID)
-	s.messages = nil
-}
-
-// SessionID returns the current session identifier.
-func (s *Store) SessionID() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.sessionID
-}
-
-// UserID returns the user identifier.
-func (s *Store) UserID() string { return s.userID }
-
-// SetSession switches to the given session and loads its messages from the database.
-func (s *Store) SetSession(_ context.Context, sessionID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sessionID = sessionID
-	s.messages = nil
-	s.materialized = false
-	return s.loadCurrentSessionLocked()
+// ClearMessages removes all messages from the given session (in DB).
+func (r *MessageRepository) ClearMessages(sessionID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, _ = r.conn.Exec("DELETE FROM messages WHERE session_id = ?", sessionID)
+	_, _ = r.conn.Exec("DELETE FROM history_turns WHERE session_id = ?", sessionID)
 }
 
 // ListSessions returns all sessions for the given user, ordered by creation date (newest first).
-func (s *Store) ListSessions(_ context.Context, userID string) ([]domain.SessionSummary, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (b *Browser) ListSessions(_ context.Context, userID string) ([]domain.SessionSummary, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	rows, err := s.db.Query(`
+	rows, err := b.conn.Query(`
 		SELECT s.id, s.title, s.created_at,
 		       COUNT(CASE WHEN m.role = 'user' THEN 1 END) AS turn_count
 		FROM sessions s
@@ -276,11 +303,11 @@ func (s *Store) ListSessions(_ context.Context, userID string) ([]domain.Session
 }
 
 // LoadHistoryTurnsFromSession returns the conversation history for the given session as question/answer pairs.
-func (s *Store) LoadHistoryTurnsFromSession(_ context.Context, sessionID string) ([]domain.HistoryTurn, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (b *Browser) LoadHistoryTurnsFromSession(_ context.Context, sessionID string) ([]domain.HistoryTurn, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	rows, err := s.db.Query(`
+	rows, err := b.conn.Query(`
 		SELECT turn_id, question, answer, question_at, answer_at
 		FROM history_turns
 		WHERE session_id = ?
@@ -314,7 +341,7 @@ func (s *Store) LoadHistoryTurnsFromSession(_ context.Context, sessionID string)
 	}
 
 	// Backward compatibility path for legacy rows/tests where history_turns is empty.
-	legacyRows, err := s.db.Query(
+	legacyRows, err := b.conn.Query(
 		"SELECT role, content, turn_id, created_at, tool_input FROM messages WHERE session_id = ? ORDER BY id",
 		sessionID,
 	)
@@ -367,82 +394,12 @@ func (s *Store) LoadHistoryTurnsFromSession(_ context.Context, sessionID string)
 	return turns, nil
 }
 
-// loadCurrentSession checks if the session already exists in the DB and loads messages.
-func (s *Store) loadCurrentSession() error {
-	return s.loadCurrentSessionLocked()
-}
-
-func (s *Store) loadCurrentSessionLocked() error {
-	var count int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE id = ?", s.sessionID).Scan(&count)
-	if err != nil {
-		return fmt.Errorf("checking session existence: %w", err)
-	}
-	if count == 0 {
-		s.materialized = false
-		s.messages = nil
-		return nil
-	}
-	s.materialized = true
-
-	rows, err := s.db.Query(
-		"SELECT role, content, tool_name, tool_input, tool_output, tool_call_id, turn_id FROM messages WHERE session_id = ? ORDER BY id",
-		s.sessionID,
-	)
-	if err != nil {
-		return fmt.Errorf("loading messages: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	s.messages = nil
-	for rows.Next() {
-		var role, content, toolName, toolInput, toolOutput, toolCallID, turnID string
-		if err := rows.Scan(&role, &content, &toolName, &toolInput, &toolOutput, &toolCallID, &turnID); err != nil {
-			return fmt.Errorf("scanning message: %w", err)
-		}
-		msg := domain.Message{
-			Role:    domain.Role(role),
-			Content: content,
-			TurnID:  turnID,
-		}
-
-		switch msg.Role {
-		case domain.RoleAssistant:
-			if toolInput != "" {
-				var calls []domain.ToolCall
-				if err := json.Unmarshal([]byte(toolInput), &calls); err == nil {
-					msg.ToolCalls = calls
-				}
-			}
-		case domain.RoleTool:
-			if toolName != "" || toolInput != "" || toolOutput != "" || toolCallID != "" {
-				var input map[string]any
-				if toolInput != "" {
-					_ = json.Unmarshal([]byte(toolInput), &input)
-				}
-				msg.ToolCalls = append(msg.ToolCalls, domain.ToolCall{
-					ID:    toolCallID,
-					Name:  toolName,
-					Input: input,
-				})
-				msg.ToolResults = append(msg.ToolResults, domain.ToolResult{
-					ToolCallID: toolCallID,
-					Content:    toolOutput,
-				})
-			}
-		}
-
-		s.messages = append(s.messages, msg)
-	}
-	return rows.Err()
-}
-
 // DeleteSession removes a session and all its messages from the database.
-func (s *Store) DeleteSession(_ context.Context, sessionID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (b *Browser) DeleteSession(_ context.Context, sessionID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	tx, err := s.db.Begin()
+	tx, err := b.conn.Begin()
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -460,12 +417,6 @@ func (s *Store) DeleteSession(_ context.Context, sessionID string) error {
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit tx: %w", err)
-	}
-
-	// If we just deleted the current session, reset in-memory state.
-	if sessionID == s.sessionID {
-		s.messages = nil
-		s.materialized = false
 	}
 	return nil
 }

@@ -33,18 +33,31 @@ type HistoryTurn struct {
 	TurnID string
 }
 
+// SessionScope identifies the current conversation context.
+// It is an immutable value type; switching sessions means creating a new SessionScope.
+type SessionScope struct {
+	SessionID string
+	UserID    string
+}
+
+// NewSessionScope creates a SessionScope.
+func NewSessionScope(sessionID, userID string) SessionScope {
+	return SessionScope{SessionID: sessionID, UserID: userID}
+}
+
 // MessageStore persists conversation messages.
+// Implementations are fully stateless — all identity context is passed via parameters.
 type MessageStore interface {
-	Add(msg Message)
-	All() []Message
-	Clear()
-	SessionID() string
-	UserID() string
+	// AddMessage adds a message to the given session.
+	AddMessage(msg Message, scope SessionScope)
+	// AllMessages returns all messages for the given session.
+	AllMessages(sessionID string) []Message
+	// ClearMessages removes all messages for the given session.
+	ClearMessages(sessionID string)
 }
 
 // SessionBrowser provides access to historical sessions stored in an external system.
 type SessionBrowser interface {
-	SetSession(ctx context.Context, sessionID string) error
 	ListSessions(ctx context.Context, userID string) ([]SessionSummary, error)
 	LoadHistoryTurnsFromSession(ctx context.Context, sessionID string) ([]HistoryTurn, error)
 	DeleteSession(ctx context.Context, sessionID string) error

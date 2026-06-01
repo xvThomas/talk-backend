@@ -15,7 +15,9 @@ type App struct {
 	Printer
 	Router       ModelSwitcher
 	Manager      *domain.ConversationManager
-	Store        domain.MessageStore
+	Scope        domain.SessionScope
+	Messages     domain.MessageStore
+	Sessions     domain.SessionBrowser
 	PP           domain.PromptProvider
 	MCPManager   *mcp.Manager
 	MCPRegistry  mcp.Registry

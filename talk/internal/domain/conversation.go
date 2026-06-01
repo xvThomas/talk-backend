@@ -13,6 +13,7 @@ const maxToolCalls = 5
 
 // ConversationManager orchestrates a multi-turn conversation with optional tool calls.
 type ConversationManager struct {
+	scope              SessionScope
 	client             LlmClient
 	modelID            string
 	provider           OLTPProvider
@@ -22,28 +23,52 @@ type ConversationManager struct {
 	reporters          []UsageReporter // Multiple reporters for parallel execution
 	maxConcurrentTools int             // Maximum concurrent tool executions
 	contextBuilder     *ContextBuilder
+	executor           *ToolExecutor
+}
+
+// ConversationManagerConfig groups all parameters for creating a ConversationManager.
+type ConversationManagerConfig struct {
+	Client             LlmClient
+	ModelID            string
+	Scope              SessionScope
+	Provider           OLTPProvider
+	Store              MessageStore
+	SessionBrowser     SessionBrowser
+	PromptProvider     PromptProvider
+	Tools              func() []Tool
+	Reporters          []UsageReporter
+	MaxConcurrentTools int
+	ContextFullTurns   int
 }
 
 // NewConversationManager creates a ConversationManager.
-func NewConversationManager(client LlmClient, modelID string, provider OLTPProvider, store MessageStore, sessionBrowser SessionBrowser, pp PromptProvider, tools func() []Tool, reporters []UsageReporter, maxConcurrentTools int, contextFullTurns int) *ConversationManager {
+func NewConversationManager(cfg ConversationManagerConfig) *ConversationManager {
 	return &ConversationManager{
-		client:             client,
-		modelID:            modelID,
-		provider:           provider,
-		store:              store,
-		promptProvider:     pp,
-		toolsProvider:      tools,
-		reporters:          reporters,
-		maxConcurrentTools: maxConcurrentTools,
-		contextBuilder:     NewContextBuilder(store, sessionBrowser, contextFullTurns),
+		scope:              cfg.Scope,
+		client:             cfg.Client,
+		modelID:            cfg.ModelID,
+		provider:           cfg.Provider,
+		store:              cfg.Store,
+		promptProvider:     cfg.PromptProvider,
+		toolsProvider:      cfg.Tools,
+		reporters:          cfg.Reporters,
+		maxConcurrentTools: cfg.MaxConcurrentTools,
+		contextBuilder:     NewContextBuilder(cfg.Store, cfg.SessionBrowser, cfg.Scope.SessionID, cfg.ContextFullTurns),
+		executor:           NewToolExecutor(cfg.Tools),
 	}
 }
 
-// sessionID returns the session ID from the store.
-func (m *ConversationManager) sessionID() string { return m.store.SessionID() }
+// SetScope updates the active session scope for the conversation manager.
+func (m *ConversationManager) SetScope(scope SessionScope) {
+	m.scope = scope
+	m.contextBuilder.sessionID = scope.SessionID
+}
 
-// userID returns the user ID from the store.
-func (m *ConversationManager) userID() string { return m.store.UserID() }
+// sessionID returns the session ID.
+func (m *ConversationManager) sessionID() string { return m.scope.SessionID }
+
+// userID returns the user ID.
+func (m *ConversationManager) userID() string { return m.scope.UserID }
 
 // reportAPICall calls OnAPICall on all reporters in parallel.
 func (m *ConversationManager) reportAPICall(event APICallEvent) {
@@ -100,7 +125,7 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 	}
 
 	turnTraceID := GenerateTraceID()
-	m.store.Add(Message{Role: RoleUser, Content: userInput, TurnID: turnTraceID})
+	m.store.AddMessage(Message{Role: RoleUser, Content: userInput, TurnID: turnTraceID}, m.scope)
 
 	turnStartedAt := time.Now()
 	turnSpanID := GenerateSpanID()
@@ -149,7 +174,7 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 		if strings.TrimSpace(storedResponse.Content) == "" && len(storedResponse.ToolCalls) > 0 {
 			storedResponse.Content = formatToolCallSummary(storedResponse.ToolCalls)
 		}
-		m.store.Add(storedResponse)
+		m.store.AddMessage(storedResponse, m.scope)
 
 		if len(response.ToolCalls) == 0 {
 			m.reportConversationTurn(TurnEvent{
@@ -178,95 +203,25 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 }
 
 func (m *ConversationManager) executeToolCalls(ctx context.Context, turnID string, calls []ToolCall) error {
+	var messages []Message
+	var err error
+
 	if len(calls) == 1 || m.maxConcurrentTools <= 1 {
 		// Execute sequentially for single calls or when concurrency is disabled
-		return m.executeToolCallsSequential(ctx, turnID, calls)
+		messages, err = m.executor.ExecuteToolCalls(ctx, turnID, calls)
+	} else {
+		// Execute in parallel with concurrency limit
+		messages, err = m.executor.ExecuteToolCallsParallel(ctx, turnID, calls, m.maxConcurrentTools)
 	}
-	// Execute in parallel with concurrency limit
-	return m.executeToolCallsParallel(ctx, turnID, calls)
-}
 
-func (m *ConversationManager) executeToolCallsSequential(ctx context.Context, turnID string, calls []ToolCall) error {
-	for _, call := range calls {
-		result, err := m.executeTool(ctx, call)
-		if err != nil {
-			return err
-		}
-		m.store.Add(Message{
-			Role:        RoleTool,
-			ToolCalls:   []ToolCall{call},
-			ToolResults: []ToolResult{result},
-			TurnID:      turnID,
-		})
+	if err != nil {
+		return err
+	}
+
+	for _, msg := range messages {
+		m.store.AddMessage(msg, m.scope)
 	}
 	return nil
-}
-
-func (m *ConversationManager) executeToolCallsParallel(ctx context.Context, turnID string, calls []ToolCall) error {
-	results := make([]ToolResult, len(calls))
-	errors := make([]error, len(calls))
-
-	// Limit concurrency using a semaphore pattern
-	sem := make(chan struct{}, m.maxConcurrentTools)
-	var wg sync.WaitGroup
-
-	for i, call := range calls {
-		wg.Add(1)
-		go func(idx int, toolCall ToolCall) {
-			defer wg.Done()
-
-			// Acquire semaphore
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			result, err := m.executeTool(ctx, toolCall)
-			if err != nil {
-				errors[idx] = err
-				return
-			}
-			results[idx] = result
-		}(i, call)
-	}
-
-	wg.Wait()
-
-	// Check for any errors and return the first one found
-	for i, err := range errors {
-		if err != nil {
-			return fmt.Errorf("tool %q failed: %w", calls[i].Name, err)
-		}
-	}
-
-	for i, call := range calls {
-		m.store.Add(Message{
-			Role:        RoleTool,
-			ToolCalls:   []ToolCall{call},
-			ToolResults: []ToolResult{results[i]},
-			TurnID:      turnID,
-		})
-	}
-	return nil
-}
-
-func (m *ConversationManager) executeTool(ctx context.Context, call ToolCall) (ToolResult, error) {
-	for _, t := range m.toolsProvider() {
-		if t.Name() == call.Name {
-			content, err := t.Execute(ctx, call.Input)
-			if err != nil {
-				return ToolResult{}, fmt.Errorf("tool %q execution: %w", call.Name, err)
-			}
-			// ici convertir content (map[string]any) en string pour le stocker dans ToolResult.Content
-			// en supposant que le résultat de l'outil est une carte, nous allons le marshaller en JSON pour le stocker comme string
-			contentBytes, err := json.Marshal(content)
-			if err != nil {
-				return ToolResult{}, fmt.Errorf("marshalling tool output for tool %q: %w", call.Name, err)
-			}
-			return ToolResult{ToolCallID: call.ID, Content: string(contentBytes)}, nil
-			// return ToolResult{ToolCallID: call.ID, Content: content}, nil --- IGNORE ---
-			// return ToolResult{ToolCallID: call.ID, Content: content.(string)}, nil --- IGNORE ---
-		}
-	}
-	return ToolResult{}, fmt.Errorf("unknown tool %q", call.Name)
 }
 
 // formatMessagesAsInput formats the conversation messages as a readable input string for observability

@@ -70,16 +70,17 @@ func run(ctx context.Context, modelAlias, systemFile string) error {
 
 	sessionID := domain.GenerateSessionID()
 	const userID = "anonymous"
+	scope := domain.NewSessionScope(sessionID, userID)
 
 	dbPath := storeDBPath()
-	store, err := sqlitestore.NewStore(dbPath, sessionID, userID)
+	messages, browser, err := sqlitestore.New(dbPath)
 	if err != nil {
 		return fmt.Errorf("opening session store: %w", err)
 	}
-	defer func() { _ = store.Close() }()
+	defer func() { _ = messages.Close() }()
 
 	// MCP server registry and manager.
-	mcpRegistry, err := mcp.NewSQLiteRegistry(store.DB())
+	mcpRegistry, err := mcp.NewSQLiteRegistry(messages.DB())
 	if err != nil {
 		return fmt.Errorf("initializing mcp registry: %w", err)
 	}
@@ -111,18 +112,19 @@ func run(ctx context.Context, modelAlias, systemFile string) error {
 		reporters = append(reporters, &usage.ConsoleUsageReporter{})
 	}
 
-	manager := domain.NewConversationManager(
-		client,
-		modelAlias,
-		modelDescriptor.OLTPProvider,
-		store,
-		store,
-		pp,
-		mcpManager.Tools,
-		reporters,
-		cfg.ToolsMaxConcurrent,
-		cfg.ContextFullTurns,
-	)
+	manager := domain.NewConversationManager(domain.ConversationManagerConfig{
+		Client:             client,
+		ModelID:            modelAlias,
+		Scope:              scope,
+		Provider:           modelDescriptor.OLTPProvider,
+		Store:              messages,
+		SessionBrowser:     browser,
+		PromptProvider:     pp,
+		Tools:              mcpManager.Tools,
+		Reporters:          reporters,
+		MaxConcurrentTools: cfg.ToolsMaxConcurrent,
+		ContextFullTurns:   cfg.ContextFullTurns,
+	})
 
 	history := NewHistory(historyFilePath())
 	lr := NewLineReader(history)
@@ -131,7 +133,9 @@ func run(ctx context.Context, modelAlias, systemFile string) error {
 		Printer:      stdPrinter{},
 		Router:       r,
 		Manager:      manager,
-		Store:        store,
+		Scope:        scope,
+		Messages:     messages,
+		Sessions:     browser,
 		PP:           pp,
 		MCPManager:   mcpManager,
 		MCPRegistry:  mcpRegistry,

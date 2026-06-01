@@ -42,19 +42,22 @@ func (r *stubUsageReporter) OnConversationTurn(e TurnEvent) { r.turns = append(r
 
 // stubStore is a simple in-memory MessageStore for tests.
 type stubStore struct {
-	messages []Message
+	messages map[string][]Message
 	history  map[string][]HistoryTurn
 }
 
-func (s *stubStore) Add(msg Message) {
-	s.messages = append(s.messages, msg)
+func (s *stubStore) AddMessage(msg Message, scope SessionScope) {
+	if s.messages == nil {
+		s.messages = make(map[string][]Message)
+	}
+	s.messages[scope.SessionID] = append(s.messages[scope.SessionID], msg)
 	if msg.TurnID == "" {
 		return
 	}
 	if s.history == nil {
 		s.history = make(map[string][]HistoryTurn)
 	}
-	turns := s.history[s.SessionID()]
+	turns := s.history[scope.SessionID]
 	switch {
 	case msg.Role == RoleUser && msg.Content != "":
 		turns = append(turns, HistoryTurn{TurnID: msg.TurnID, Question: msg.Content, At: time.Now()})
@@ -66,14 +69,18 @@ func (s *stubStore) Add(msg Message) {
 			}
 		}
 	}
-	s.history[s.SessionID()] = turns
+	s.history[scope.SessionID] = turns
 }
-func (s *stubStore) All() []Message    { return s.messages }
-func (s *stubStore) Clear()            { s.messages = nil }
-func (s *stubStore) SessionID() string { return "test-session" }
-func (s *stubStore) UserID() string    { return "anonymous" }
-func (s *stubStore) SetSession(_ context.Context, _ string) error {
-	return nil
+func (s *stubStore) AllMessages(sessionID string) []Message {
+	if s.messages == nil {
+		return nil
+	}
+	return s.messages[sessionID]
+}
+func (s *stubStore) ClearMessages(sessionID string) {
+	if s.messages != nil {
+		delete(s.messages, sessionID)
+	}
 }
 func (s *stubStore) ListSessions(_ context.Context, _ string) ([]SessionSummary, error) {
 	return nil, nil
@@ -129,7 +136,19 @@ func newManager(client *stubClient, tools []Tool) (*ConversationManager, *stubUs
 	reporter := &stubUsageReporter{}
 	reporters := []UsageReporter{reporter}
 	store := &stubStore{}
-	mgr := NewConversationManager(client, "test-model", OLTPProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return tools }, reporters, 2, -1)
+	mgr := NewConversationManager(ConversationManagerConfig{
+		Client:             client,
+		ModelID:            "test-model",
+		Scope:              NewSessionScope("test-session", "anonymous"),
+		Provider:           OLTPProviderAnthropic,
+		Store:              store,
+		SessionBrowser:     store,
+		PromptProvider:     &stubPromptProvider{"system"},
+		Tools:              func() []Tool { return tools },
+		Reporters:          reporters,
+		MaxConcurrentTools: 2,
+		ContextFullTurns:   -1,
+	})
 	return mgr, reporter
 }
 
@@ -339,7 +358,19 @@ func TestConversation_ParallelToolExecution(t *testing.T) {
 	// Use maxConcurrentTools = 2 to test concurrency limiting
 	reporter := &stubUsageReporter{}
 	store := &stubStore{}
-	mgr := NewConversationManager(client, "test-model", OLTPProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return []Tool{tool1, tool2, tool3} }, []UsageReporter{reporter}, 2, -1)
+	mgr := NewConversationManager(ConversationManagerConfig{
+		Client:             client,
+		ModelID:            "test-model",
+		Scope:              NewSessionScope("test-session", "anonymous"),
+		Provider:           OLTPProviderAnthropic,
+		Store:              store,
+		SessionBrowser:     store,
+		PromptProvider:     &stubPromptProvider{"system"},
+		Tools:              func() []Tool { return []Tool{tool1, tool2, tool3} },
+		Reporters:          []UsageReporter{reporter},
+		MaxConcurrentTools: 2,
+		ContextFullTurns:   -1,
+	})
 
 	answer, err := mgr.Chat(context.Background(), "run parallel tools")
 	if err != nil {
@@ -379,7 +410,19 @@ func TestConversation_SequentialWhenMaxConcurrentIsOne(t *testing.T) {
 	// Force sequential execution with maxConcurrentTools = 1
 	reporter := &stubUsageReporter{}
 	store := &stubStore{}
-	mgr := NewConversationManager(client, "test-model", OLTPProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return []Tool{tool1, tool2} }, []UsageReporter{reporter}, 1, -1)
+	mgr := NewConversationManager(ConversationManagerConfig{
+		Client:             client,
+		ModelID:            "test-model",
+		Scope:              NewSessionScope("test-session", "anonymous"),
+		Provider:           OLTPProviderAnthropic,
+		Store:              store,
+		SessionBrowser:     store,
+		PromptProvider:     &stubPromptProvider{"system"},
+		Tools:              func() []Tool { return []Tool{tool1, tool2} },
+		Reporters:          []UsageReporter{reporter},
+		MaxConcurrentTools: 1,
+		ContextFullTurns:   -1,
+	})
 
 	answer, err := mgr.Chat(context.Background(), "run sequential tools")
 	if err != nil {
@@ -411,35 +454,35 @@ func TestConversation_OneToolMessagePerExecution(t *testing.T) {
 	}}
 
 	store := &stubStore{}
-	mgr := NewConversationManager(
-		client,
-		"test-model",
-		OLTPProviderAnthropic,
-		store,
-		store,
-		&stubPromptProvider{"system"},
-		func() []Tool { return []Tool{tool1, tool2} },
-		nil,
-		1,
-		-1,
-	)
+	mgr := NewConversationManager(ConversationManagerConfig{
+		Client:             client,
+		ModelID:            "test-model",
+		Scope:              NewSessionScope("test-session", "anonymous"),
+		Provider:           OLTPProviderAnthropic,
+		Store:              store,
+		SessionBrowser:     store,
+		PromptProvider:     &stubPromptProvider{"system"},
+		Tools:              func() []Tool { return []Tool{tool1, tool2} },
+		MaxConcurrentTools: 1,
+		ContextFullTurns:   -1,
+	})
 
 	_, err := mgr.Chat(context.Background(), "run tools")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(store.messages) != 5 {
-		t.Fatalf("expected 5 messages, got %d", len(store.messages))
+	if len(store.messages["test-session"]) != 5 {
+		t.Fatalf("expected 5 messages, got %d", len(store.messages["test-session"]))
 	}
 
-	turnID := store.messages[0].TurnID
+	turnID := store.messages["test-session"][0].TurnID
 	if turnID == "" {
 		t.Fatal("expected non-empty turn ID on user message")
 	}
 
-	toolMsg1 := store.messages[2]
-	toolMsg2 := store.messages[3]
+	toolMsg1 := store.messages["test-session"][2]
+	toolMsg2 := store.messages["test-session"][3]
 
 	if toolMsg1.Role != RoleTool || toolMsg2.Role != RoleTool {
 		t.Fatalf("expected tool messages at index 2 and 3, got roles %q and %q", toolMsg1.Role, toolMsg2.Role)
@@ -472,29 +515,29 @@ func TestConversation_AssistantToolOnlyResponseGetsSummaryAndTurnID(t *testing.T
 	}}
 
 	store := &stubStore{}
-	mgr := NewConversationManager(
-		client,
-		"test-model",
-		OLTPProviderAnthropic,
-		store,
-		store,
-		&stubPromptProvider{"system"},
-		func() []Tool { return []Tool{tool} },
-		nil,
-		2,
-		-1,
-	)
+	mgr := NewConversationManager(ConversationManagerConfig{
+		Client:             client,
+		ModelID:            "test-model",
+		Scope:              NewSessionScope("test-session", "anonymous"),
+		Provider:           OLTPProviderAnthropic,
+		Store:              store,
+		SessionBrowser:     store,
+		PromptProvider:     &stubPromptProvider{"system"},
+		Tools:              func() []Tool { return []Tool{tool} },
+		MaxConcurrentTools: 2,
+		ContextFullTurns:   -1,
+	})
 
 	_, err := mgr.Chat(context.Background(), "route")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(store.messages) < 2 {
-		t.Fatalf("expected at least 2 messages, got %d", len(store.messages))
+	if len(store.messages["test-session"]) < 2 {
+		t.Fatalf("expected at least 2 messages, got %d", len(store.messages["test-session"]))
 	}
 
-	assistant := store.messages[1]
+	assistant := store.messages["test-session"][1]
 	if assistant.Role != RoleAssistant {
 		t.Fatalf("expected second message to be assistant, got %q", assistant.Role)
 	}
@@ -511,12 +554,14 @@ func TestConversation_AssistantToolOnlyResponseGetsSummaryAndTurnID(t *testing.T
 
 func TestBuildContextMessages_LeanModeUsesHistoryTurns(t *testing.T) {
 	store := &stubStore{
-		messages: []Message{
-			{Role: RoleUser, Content: "Q1 detailed", TurnID: "t1"},
-			{Role: RoleAssistant, Content: "A1 detailed", TurnID: "t1"},
-			{Role: RoleUser, Content: "Q2 detailed", TurnID: "t2"},
-			{Role: RoleAssistant, Content: "A2 detailed", TurnID: "t2"},
-			{Role: RoleUser, Content: "Q3 current", TurnID: "t3"},
+		messages: map[string][]Message{
+			"test-session": {
+				{Role: RoleUser, Content: "Q1 detailed", TurnID: "t1"},
+				{Role: RoleAssistant, Content: "A1 detailed", TurnID: "t1"},
+				{Role: RoleUser, Content: "Q2 detailed", TurnID: "t2"},
+				{Role: RoleAssistant, Content: "A2 detailed", TurnID: "t2"},
+				{Role: RoleUser, Content: "Q3 current", TurnID: "t3"},
+			},
 		},
 		history: map[string][]HistoryTurn{
 			"test-session": {
@@ -526,7 +571,18 @@ func TestBuildContextMessages_LeanModeUsesHistoryTurns(t *testing.T) {
 		},
 	}
 
-	mgr := NewConversationManager(&stubClient{}, "test-model", OLTPProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return nil }, nil, 1, 0)
+	mgr := NewConversationManager(ConversationManagerConfig{
+		Client:             &stubClient{},
+		ModelID:            "test-model",
+		Scope:              NewSessionScope("test-session", "anonymous"),
+		Provider:           OLTPProviderAnthropic,
+		Store:              store,
+		SessionBrowser:     store,
+		PromptProvider:     &stubPromptProvider{"system"},
+		Tools:              func() []Tool { return nil },
+		MaxConcurrentTools: 1,
+		ContextFullTurns:   0,
+	})
 
 	got := mgr.contextBuilder.BuildContextMessages(context.Background(), "t3")
 	if len(got) != 5 {
@@ -542,12 +598,14 @@ func TestBuildContextMessages_LeanModeUsesHistoryTurns(t *testing.T) {
 
 func TestBuildContextMessages_HybridKeepsLastNDetailedTurns(t *testing.T) {
 	store := &stubStore{
-		messages: []Message{
-			{Role: RoleUser, Content: "Q1 detailed", TurnID: "t1"},
-			{Role: RoleAssistant, Content: "A1 detailed", TurnID: "t1"},
-			{Role: RoleUser, Content: "Q2 detailed", TurnID: "t2"},
-			{Role: RoleAssistant, Content: "A2 detailed", TurnID: "t2"},
-			{Role: RoleUser, Content: "Q3 current", TurnID: "t3"},
+		messages: map[string][]Message{
+			"test-session": {
+				{Role: RoleUser, Content: "Q1 detailed", TurnID: "t1"},
+				{Role: RoleAssistant, Content: "A1 detailed", TurnID: "t1"},
+				{Role: RoleUser, Content: "Q2 detailed", TurnID: "t2"},
+				{Role: RoleAssistant, Content: "A2 detailed", TurnID: "t2"},
+				{Role: RoleUser, Content: "Q3 current", TurnID: "t3"},
+			},
 		},
 		history: map[string][]HistoryTurn{
 			"test-session": {
@@ -557,7 +615,18 @@ func TestBuildContextMessages_HybridKeepsLastNDetailedTurns(t *testing.T) {
 		},
 	}
 
-	mgr := NewConversationManager(&stubClient{}, "test-model", OLTPProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return nil }, nil, 1, 1)
+	mgr := NewConversationManager(ConversationManagerConfig{
+		Client:             &stubClient{},
+		ModelID:            "test-model",
+		Scope:              NewSessionScope("test-session", "anonymous"),
+		Provider:           OLTPProviderAnthropic,
+		Store:              store,
+		SessionBrowser:     store,
+		PromptProvider:     &stubPromptProvider{"system"},
+		Tools:              func() []Tool { return nil },
+		MaxConcurrentTools: 1,
+		ContextFullTurns:   1,
+	})
 
 	got := mgr.contextBuilder.BuildContextMessages(context.Background(), "t3")
 	if len(got) != 5 {
@@ -592,7 +661,18 @@ func TestConversation_ChatUsesExpectedContextSizesByMode(t *testing.T) {
 		client := newClient()
 		tool := &stubTool{name: "weather", result: map[string]any{"ok": true}}
 		store := &stubStore{}
-		mgr := NewConversationManager(client, "test-model", OLTPProviderAnthropic, store, store, &stubPromptProvider{"system"}, func() []Tool { return []Tool{tool} }, nil, 1, mode)
+		mgr := NewConversationManager(ConversationManagerConfig{
+			Client:             client,
+			ModelID:            "test-model",
+			Scope:              NewSessionScope("test-session", "anonymous"),
+			Provider:           OLTPProviderAnthropic,
+			Store:              store,
+			SessionBrowser:     store,
+			PromptProvider:     &stubPromptProvider{"system"},
+			Tools:              func() []Tool { return []Tool{tool} },
+			MaxConcurrentTools: 1,
+			ContextFullTurns:   mode,
+		})
 
 		for _, input := range []string{"Q1", "Q2", "Q3"} {
 			if _, err := mgr.Chat(context.Background(), input); err != nil {

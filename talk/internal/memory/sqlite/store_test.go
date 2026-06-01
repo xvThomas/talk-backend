@@ -11,24 +11,27 @@ import (
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
 )
 
-func newTestStore(t *testing.T) *Store {
+var scope = domain.NewSessionScope("sess-1", "user1")
+
+func newTestStore(t *testing.T) (*MessageRepository, *Browser, func()) {
 	t.Helper()
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
-	s, err := NewStore(dbPath, "sess-1", "user1")
+	r, b, err := New(dbPath)
 	if err != nil {
-		t.Fatalf("NewStore: %v", err)
+		t.Fatalf("New: %v", err)
 	}
-	t.Cleanup(func() { _ = s.Close() })
-	return s
+	cleanup := func() { _ = r.Close() }
+	t.Cleanup(cleanup)
+	return r, b, cleanup
 }
 
 func TestStore_AddAndAll(t *testing.T) {
-	s := newTestStore(t)
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "hello"})
-	s.Add(domain.Message{Role: domain.RoleAssistant, Content: "world"})
+	s, _, _ := newTestStore(t)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "hello"}, scope)
+	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "world"}, scope)
 
-	msgs := s.All()
+	msgs := s.AllMessages(scope.SessionID)
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(msgs))
 	}
@@ -38,10 +41,10 @@ func TestStore_AddAndAll(t *testing.T) {
 }
 
 func TestStore_SessionNotMaterializedUntilUserMessage(t *testing.T) {
-	s := newTestStore(t)
+	s, b, _ := newTestStore(t)
 
 	// Before any message, no sessions exist
-	sessions, err := s.ListSessions(context.Background(), "user1")
+	sessions, err := b.ListSessions(context.Background(), "user1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,33 +53,33 @@ func TestStore_SessionNotMaterializedUntilUserMessage(t *testing.T) {
 	}
 
 	// Adding an assistant message should NOT materialize the session
-	s.Add(domain.Message{Role: domain.RoleAssistant, Content: "hi there"})
-	sessions, _ = s.ListSessions(context.Background(), "user1")
+	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "hi there"}, scope)
+	sessions, _ = b.ListSessions(context.Background(), "user1")
 	if len(sessions) != 0 {
 		t.Fatalf("expected 0 sessions after assistant msg, got %d", len(sessions))
 	}
 
-	// All should return nil for unmaterialized session
-	msgs := s.All()
+	// AllMessages should return nil for unmaterialized session
+	msgs := s.AllMessages(scope.SessionID)
 	if msgs != nil {
 		t.Fatalf("expected nil messages for unmaterialized session, got %d", len(msgs))
 	}
 
 	// Adding a user message materializes the session
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "question"})
-	sessions, _ = s.ListSessions(context.Background(), "user1")
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "question"}, scope)
+	sessions, _ = b.ListSessions(context.Background(), "user1")
 	if len(sessions) != 1 {
 		t.Fatalf("expected 1 session after user msg, got %d", len(sessions))
 	}
 }
 
 func TestStore_TitleSetFromFirstUserMessage(t *testing.T) {
-	s := newTestStore(t)
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "What is Go?"})
-	s.Add(domain.Message{Role: domain.RoleAssistant, Content: "A programming language."})
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "Tell me more"})
+	s, b, _ := newTestStore(t)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "What is Go?"}, scope)
+	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "A programming language."}, scope)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "Tell me more"}, scope)
 
-	sessions, _ := s.ListSessions(context.Background(), "user1")
+	sessions, _ := b.ListSessions(context.Background(), "user1")
 	if len(sessions) != 1 {
 		t.Fatalf("expected 1 session, got %d", len(sessions))
 	}
@@ -86,77 +89,50 @@ func TestStore_TitleSetFromFirstUserMessage(t *testing.T) {
 }
 
 func TestStore_Clear(t *testing.T) {
-	s := newTestStore(t)
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "hello"})
-	s.Add(domain.Message{Role: domain.RoleAssistant, Content: "hi"})
+	s, _, _ := newTestStore(t)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "hello"}, scope)
+	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "hi"}, scope)
 
-	s.Clear()
-	msgs := s.All()
+	s.ClearMessages(scope.SessionID)
+	msgs := s.AllMessages(scope.SessionID)
 	if len(msgs) != 0 {
 		t.Fatalf("expected 0 messages after clear, got %d", len(msgs))
 	}
 }
 
 func TestStore_ClearUnmaterializedSession(t *testing.T) {
-	s := newTestStore(t)
+	s, _, _ := newTestStore(t)
 	// Clear on unmaterialized session should not panic
-	s.Clear()
-	msgs := s.All()
+	s.ClearMessages(scope.SessionID)
+	msgs := s.AllMessages(scope.SessionID)
 	if msgs != nil {
 		t.Fatalf("expected nil, got %v", msgs)
 	}
 }
 
-func TestStore_SessionIDAndUserID(t *testing.T) {
-	dir := t.TempDir()
-	s, err := NewStore(filepath.Join(dir, "test.db"), "sess-42", "bob")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
-
-	if s.SessionID() != "sess-42" {
-		t.Errorf("expected session ID %q, got %q", "sess-42", s.SessionID())
-	}
-	if s.UserID() != "bob" {
-		t.Errorf("expected user ID %q, got %q", "bob", s.UserID())
-	}
-}
-
-func TestStore_SetSessionSwitches(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
+func TestStore_MultiSession(t *testing.T) {
+	s, _, _ := newTestStore(t)
+	scope2 := domain.NewSessionScope("sess-2", "user1")
 
 	// Add messages to first session
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "q1"})
-	s.Add(domain.Message{Role: domain.RoleAssistant, Content: "a1"})
-
-	// Switch to a new session
-	if err := s.SetSession(ctx, "sess-2"); err != nil {
-		t.Fatal(err)
-	}
-	if s.SessionID() != "sess-2" {
-		t.Errorf("expected session ID %q, got %q", "sess-2", s.SessionID())
-	}
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q1"}, scope)
+	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "a1"}, scope)
 
 	// New session has no messages yet
-	msgs := s.All()
+	msgs := s.AllMessages(scope2.SessionID)
 	if msgs != nil {
 		t.Fatalf("expected nil messages for new session, got %d", len(msgs))
 	}
 
 	// Add message to second session
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "q2"})
-	msgs = s.All()
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q2"}, scope2)
+	msgs = s.AllMessages(scope2.SessionID)
 	if len(msgs) != 1 || msgs[0].Content != "q2" {
 		t.Errorf("unexpected messages in session 2: %v", msgs)
 	}
 
-	// Switch back to first session — messages should reload from DB
-	if err := s.SetSession(ctx, "sess-1"); err != nil {
-		t.Fatal(err)
-	}
-	msgs = s.All()
+	// First session still has its messages
+	msgs = s.AllMessages(scope.SessionID)
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages in session 1, got %d", len(msgs))
 	}
@@ -166,17 +142,16 @@ func TestStore_SetSessionSwitches(t *testing.T) {
 }
 
 func TestStore_ListSessionsMultiple(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
+	s, b, _ := newTestStore(t)
+	scope2 := domain.NewSessionScope("sess-2", "user1")
 
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "first"})
-	s.Add(domain.Message{Role: domain.RoleAssistant, Content: "reply1"})
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "second"})
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "first"}, scope)
+	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "reply1"}, scope)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "second"}, scope)
 
-	_ = s.SetSession(ctx, "sess-2")
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "hello sess2"})
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "hello sess2"}, scope2)
 
-	sessions, err := s.ListSessions(ctx, "user1")
+	sessions, err := b.ListSessions(context.Background(), "user1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,22 +185,20 @@ func TestStore_ListSessionsFiltersByUserID(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
 
-	s1, err := NewStore(dbPath, "sess-a", "alice")
+	r, b, err := New(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s1.Add(domain.Message{Role: domain.RoleUser, Content: "alice msg"})
-	_ = s1.Close()
+	defer func() { _ = r.Close() }()
 
-	s2, err := NewStore(dbPath, "sess-b", "bob")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s2.Close() }()
-	s2.Add(domain.Message{Role: domain.RoleUser, Content: "bob msg"})
+	aliceScope := domain.NewSessionScope("sess-a", "alice")
+	bobScope := domain.NewSessionScope("sess-b", "bob")
+
+	r.AddMessage(domain.Message{Role: domain.RoleUser, Content: "alice msg"}, aliceScope)
+	r.AddMessage(domain.Message{Role: domain.RoleUser, Content: "bob msg"}, bobScope)
 
 	// Bob should only see his session
-	sessions, _ := s2.ListSessions(context.Background(), "bob")
+	sessions, _ := b.ListSessions(context.Background(), "bob")
 	if len(sessions) != 1 {
 		t.Fatalf("expected 1 session for bob, got %d", len(sessions))
 	}
@@ -234,7 +207,7 @@ func TestStore_ListSessionsFiltersByUserID(t *testing.T) {
 	}
 
 	// Alice should only see her session
-	sessions, _ = s2.ListSessions(context.Background(), "alice")
+	sessions, _ = b.ListSessions(context.Background(), "alice")
 	if len(sessions) != 1 {
 		t.Fatalf("expected 1 session for alice, got %d", len(sessions))
 	}
@@ -245,11 +218,11 @@ func TestStore_ListSessionsFiltersByUserID(t *testing.T) {
 
 func TestStore_ListSessionsCreatedAtIsSet(t *testing.T) {
 	before := time.Now().Add(-time.Second)
-	s := newTestStore(t)
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "hi"})
+	s, b, _ := newTestStore(t)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "hi"}, scope)
 	after := time.Now().Add(time.Second)
 
-	sessions, _ := s.ListSessions(context.Background(), "user1")
+	sessions, _ := b.ListSessions(context.Background(), "user1")
 	if len(sessions) != 1 {
 		t.Fatalf("expected 1 session, got %d", len(sessions))
 	}
@@ -259,8 +232,8 @@ func TestStore_ListSessionsCreatedAtIsSet(t *testing.T) {
 }
 
 func TestStore_LoadSessionReturnsNilForUnknown(t *testing.T) {
-	s := newTestStore(t)
-	turns, err := s.LoadHistoryTurnsFromSession(context.Background(), "nonexistent")
+	_, b, _ := newTestStore(t)
+	turns, err := b.LoadHistoryTurnsFromSession(context.Background(), "nonexistent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,13 +243,13 @@ func TestStore_LoadSessionReturnsNilForUnknown(t *testing.T) {
 }
 
 func TestStore_LoadSessionBuildsTurns(t *testing.T) {
-	s := newTestStore(t)
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "q1"})
-	s.Add(domain.Message{Role: domain.RoleAssistant, Content: "a1"})
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "q2"})
-	s.Add(domain.Message{Role: domain.RoleAssistant, Content: "a2"})
+	s, b, _ := newTestStore(t)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q1"}, scope)
+	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "a1"}, scope)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q2"}, scope)
+	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "a2"}, scope)
 
-	turns, err := s.LoadHistoryTurnsFromSession(context.Background(), "sess-1")
+	turns, err := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,10 +265,10 @@ func TestStore_LoadSessionBuildsTurns(t *testing.T) {
 }
 
 func TestStore_LoadSessionUserWithoutAnswer(t *testing.T) {
-	s := newTestStore(t)
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "q1"})
+	s, b, _ := newTestStore(t)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q1"}, scope)
 
-	turns, _ := s.LoadHistoryTurnsFromSession(context.Background(), "sess-1")
+	turns, _ := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID)
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn, got %d", len(turns))
 	}
@@ -306,12 +279,12 @@ func TestStore_LoadSessionUserWithoutAnswer(t *testing.T) {
 
 func TestStore_LoadSessionTimestampsAreSet(t *testing.T) {
 	before := time.Now().Add(-time.Second)
-	s := newTestStore(t)
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "q1"})
-	s.Add(domain.Message{Role: domain.RoleAssistant, Content: "a1"})
+	s, b, _ := newTestStore(t)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q1"}, scope)
+	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "a1"}, scope)
 	after := time.Now().Add(time.Second)
 
-	turns, _ := s.LoadHistoryTurnsFromSession(context.Background(), "sess-1")
+	turns, _ := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID)
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn, got %d", len(turns))
 	}
@@ -320,33 +293,16 @@ func TestStore_LoadSessionTimestampsAreSet(t *testing.T) {
 	}
 }
 
-func TestStore_AllReturnsCopy(t *testing.T) {
-	s := newTestStore(t)
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "hello"})
+func TestStore_AllMessagesDoesNotShareState(t *testing.T) {
+	s, _, _ := newTestStore(t)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "hello"}, scope)
 
-	msgs := s.All()
+	msgs := s.AllMessages(scope.SessionID)
 	msgs[0].Content = "modified"
 
-	original := s.All()
+	original := s.AllMessages(scope.SessionID)
 	if original[0].Content != "hello" {
-		t.Error("All() did not return a copy; modification affected store")
-	}
-}
-
-func TestStore_SetSessionDoesNotMaterialize(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "msg"})
-
-	// Switch to new session without sending a message
-	_ = s.SetSession(ctx, "sess-new")
-
-	sessions, _ := s.ListSessions(ctx, "user1")
-	if len(sessions) != 1 {
-		t.Fatalf("expected 1 materialized session, got %d", len(sessions))
-	}
-	if sessions[0].ID != "sess-1" {
-		t.Errorf("expected session ID %q, got %q", "sess-1", sessions[0].ID)
+		t.Error("AllMessages() did not return independent data; modification affected store")
 	}
 }
 
@@ -355,22 +311,22 @@ func TestStore_PersistenceAcrossReopen(t *testing.T) {
 	dbPath := filepath.Join(dir, "test.db")
 
 	// Create store, add messages, close
-	s1, err := NewStore(dbPath, "sess-1", "user1")
+	r1, _, err := New(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s1.Add(domain.Message{Role: domain.RoleUser, Content: "persistent question"})
-	s1.Add(domain.Message{Role: domain.RoleAssistant, Content: "persistent answer"})
-	_ = s1.Close()
+	r1.AddMessage(domain.Message{Role: domain.RoleUser, Content: "persistent question"}, scope)
+	r1.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "persistent answer"}, scope)
+	_ = r1.Close()
 
-	// Reopen with same session — messages should be loaded from disk
-	s2, err := NewStore(dbPath, "sess-1", "user1")
+	// Reopen — messages should be available from disk
+	r2, _, err := New(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = s2.Close() }()
+	defer func() { _ = r2.Close() }()
 
-	msgs := s2.All()
+	msgs := r2.AllMessages(scope.SessionID)
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages after reopen, got %d", len(msgs))
 	}
@@ -386,21 +342,21 @@ func TestStore_PersistenceSessionsListAfterReopen(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
 
-	s1, err := NewStore(dbPath, "sess-1", "user1")
+	r1, _, err := New(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s1.Add(domain.Message{Role: domain.RoleUser, Content: "q1"})
-	_ = s1.Close()
+	r1.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q1"}, scope)
+	_ = r1.Close()
 
-	// Reopen with different session — should still list the first one
-	s2, err := NewStore(dbPath, "sess-2", "user1")
+	// Reopen — should still list the session
+	_, b2, err := New(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = s2.Close() }()
+	defer func() { _ = b2.Close() }()
 
-	sessions, _ := s2.ListSessions(context.Background(), "user1")
+	sessions, _ := b2.ListSessions(context.Background(), "user1")
 	if len(sessions) != 1 {
 		t.Fatalf("expected 1 session, got %d", len(sessions))
 	}
@@ -412,17 +368,17 @@ func TestStore_PersistenceSessionsListAfterReopen(t *testing.T) {
 	}
 }
 
-func TestStore_NewStoreInvalidPath(t *testing.T) {
-	_, err := NewStore(filepath.Join(string(os.PathSeparator), "nonexistent", "deeply", "nested", "test.db"), "s", "u")
+func TestStore_NewInvalidPath(t *testing.T) {
+	_, _, err := New(filepath.Join(string(os.PathSeparator), "nonexistent", "deeply", "nested", "test.db"))
 	if err == nil {
 		t.Fatal("expected error for invalid path")
 	}
 }
 
 func TestStore_AddToolMessagePersistsToolMetadata(t *testing.T) {
-	s := newTestStore(t)
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "q"})
-	s.Add(domain.Message{
+	s, _, _ := newTestStore(t)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q"}, scope)
+	s.AddMessage(domain.Message{
 		Role:    domain.RoleTool,
 		Content: "get_weather",
 		ToolCalls: []domain.ToolCall{{
@@ -434,12 +390,12 @@ func TestStore_AddToolMessagePersistsToolMetadata(t *testing.T) {
 			ToolCallID: "call-1",
 			Content:    `{"temperature":"20C"}`,
 		}},
-	})
+	}, scope)
 
 	var toolName, toolInput, toolOutput, toolCallID string
-	err := s.db.QueryRow(
+	err := s.conn.QueryRow(
 		"SELECT tool_name, tool_input, tool_output, tool_call_id FROM messages WHERE session_id = ? AND role = ? ORDER BY id DESC LIMIT 1",
-		s.sessionID,
+		scope.SessionID,
 		string(domain.RoleTool),
 	).Scan(&toolName, &toolInput, &toolOutput, &toolCallID)
 	if err != nil {
@@ -466,21 +422,18 @@ func TestStore_AddToolMessagePersistsToolMetadata(t *testing.T) {
 }
 
 func TestStore_AssistantToolCallsRoundTrip(t *testing.T) {
-	s := newTestStore(t)
-	s.Add(domain.Message{Role: domain.RoleUser, Content: "q"})
-	s.Add(domain.Message{
+	s, _, _ := newTestStore(t)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q"}, scope)
+	s.AddMessage(domain.Message{
 		Role: domain.RoleAssistant,
 		ToolCalls: []domain.ToolCall{
 			{ID: "call-1", Name: "tool1", Input: map[string]any{"x": 1}},
 			{ID: "call-2", Name: "tool2", Input: map[string]any{"x": 2}},
 		},
-	})
+	}, scope)
 
-	if err := s.SetSession(context.Background(), s.sessionID); err != nil {
-		t.Fatalf("reload current session: %v", err)
-	}
-
-	msgs := s.All()
+	// Re-read from DB to verify round-trip
+	msgs := s.AllMessages(scope.SessionID)
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages after reload, got %d", len(msgs))
 	}
