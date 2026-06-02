@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -107,14 +108,14 @@ type stubTool struct {
 	name   string
 	result map[string]any
 	err    error
-	called int
+	called atomic.Int32
 }
 
 func (t *stubTool) Name() string               { return t.name }
 func (t *stubTool) Description() string        { return "stub tool" }
 func (t *stubTool) Parameters() map[string]any { return map[string]any{} }
 func (t *stubTool) Execute(_ context.Context, _ map[string]any) (map[string]any, error) {
-	t.called++
+	t.called.Add(1)
 	return t.result, t.err
 }
 func (t *stubTool) InputSchema() (map[string]any, error) {
@@ -185,8 +186,8 @@ func TestConversation_SingleToolCall(t *testing.T) {
 	if answer != "It is 20°C and sunny in Paris." {
 		t.Errorf("unexpected answer: %q", answer)
 	}
-	if tool.called != 1 {
-		t.Errorf("expected tool called once, got %d", tool.called)
+	if tool.called.Load() != 1 {
+		t.Errorf("expected tool called once, got %d", tool.called.Load())
 	}
 }
 
@@ -381,14 +382,14 @@ func TestConversation_ParallelToolExecution(t *testing.T) {
 	}
 
 	// Verify all tools were called exactly once
-	if tool1.called != 1 {
-		t.Errorf("tool1 should be called once, got %d", tool1.called)
+	if tool1.called.Load() != 1 {
+		t.Errorf("tool1 should be called once, got %d", tool1.called.Load())
 	}
-	if tool2.called != 1 {
-		t.Errorf("tool2 should be called once, got %d", tool2.called)
+	if tool2.called.Load() != 1 {
+		t.Errorf("tool2 should be called once, got %d", tool2.called.Load())
 	}
-	if tool3.called != 1 {
-		t.Errorf("tool3 should be called once, got %d", tool3.called)
+	if tool3.called.Load() != 1 {
+		t.Errorf("tool3 should be called once, got %d", tool3.called.Load())
 	}
 }
 
@@ -433,8 +434,8 @@ func TestConversation_SequentialWhenMaxConcurrentIsOne(t *testing.T) {
 	}
 
 	// Verify tools were called
-	if tool1.called != 1 || tool2.called != 1 {
-		t.Errorf("both tools should be called once, got tool1=%d tool2=%d", tool1.called, tool2.called)
+	if tool1.called.Load() != 1 || tool2.called.Load() != 1 {
+		t.Errorf("both tools should be called once, got tool1=%d tool2=%d", tool1.called.Load(), tool2.called.Load())
 	}
 }
 
