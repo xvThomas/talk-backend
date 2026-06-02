@@ -13,17 +13,16 @@ const maxToolCalls = 5
 
 // ConversationManager orchestrates a multi-turn conversation with optional tool calls.
 type ConversationManager struct {
-	scope              SessionScope
-	client             LlmClient
-	modelID            string
-	provider           OLTPProvider
-	store              MessageStore
-	promptProvider     PromptProvider
-	toolsProvider      func() []Tool
-	reporters          []UsageReporter // Multiple reporters for parallel execution
-	maxConcurrentTools int             // Maximum concurrent tool executions
-	contextBuilder     *ContextBuilder
-	executor           *ToolExecutor
+	scope          SessionScope
+	client         LlmClient
+	modelID        string
+	provider       OLTPProvider
+	store          MessageStore
+	promptProvider PromptProvider
+	toolsProvider  func() []Tool
+	reporters      []UsageReporter
+	contextBuilder *ContextBuilder
+	executor       *ToolExecutor
 }
 
 // ConversationManagerConfig groups all parameters for creating a ConversationManager.
@@ -44,17 +43,16 @@ type ConversationManagerConfig struct {
 // NewConversationManager creates a ConversationManager.
 func NewConversationManager(cfg ConversationManagerConfig) *ConversationManager {
 	return &ConversationManager{
-		scope:              cfg.Scope,
-		client:             cfg.Client,
-		modelID:            cfg.ModelID,
-		provider:           cfg.Provider,
-		store:              cfg.Store,
-		promptProvider:     cfg.PromptProvider,
-		toolsProvider:      cfg.Tools,
-		reporters:          cfg.Reporters,
-		maxConcurrentTools: cfg.MaxConcurrentTools,
-		contextBuilder:     NewContextBuilder(cfg.Store, cfg.SessionBrowser, cfg.Scope.SessionID, cfg.ContextFullTurns),
-		executor:           NewToolExecutor(cfg.Tools),
+		scope:          cfg.Scope,
+		client:         cfg.Client,
+		modelID:        cfg.ModelID,
+		provider:       cfg.Provider,
+		store:          cfg.Store,
+		promptProvider: cfg.PromptProvider,
+		toolsProvider:  cfg.Tools,
+		reporters:      cfg.Reporters,
+		contextBuilder: NewContextBuilder(cfg.Store, cfg.SessionBrowser, cfg.Scope.SessionID, cfg.ContextFullTurns),
+		executor:       NewToolExecutor(cfg.Tools, cfg.MaxConcurrentTools),
 	}
 }
 
@@ -118,22 +116,29 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 		return "", fmt.Errorf("loading system prompt: %w", err)
 	}
 
-	turnTraceID := GenerateTraceID()
-	m.store.AddMessage(Message{Role: RoleUser, Content: userInput, TurnID: turnTraceID}, m.scope)
+	// turnID is used to correlate all messages, API calls, and tool calls for this conversation turn in observability.
+	turnID := GenerateTraceID()
+	// Store the user message in the conversation history before processing to ensure it's included in the context
+	// for the first API call and in observability.
+	m.store.AddMessage(Message{Role: RoleUser, Content: userInput, TurnID: turnID}, m.scope)
 
 	turnStartedAt := time.Now()
+	// turnSpanID is used to correlate all events for this conversation turn in observability. It is the parent span for all API call spans in this turn.
 	turnSpanID := GenerateSpanID()
 	var totalUsage Usage
 	var allToolCalls []ToolCall // Collect all tool calls for the turn event
 	var lastCallEndedAt time.Time
 	callCount := 0
+	// kind tracks whether the API call is the initial LLM call or a subsequent call after tool results, for observability purposes.
 	kind := CallKindInitial
 
 	for range maxToolCalls {
 		// Get the current conversation context for the API call input
-		messages := m.contextBuilder.BuildContextMessages(ctx, turnTraceID)
+		messages := m.contextBuilder.BuildContextMessages(ctx, turnID)
 		conversationInput := formatMessagesAsInput(messages, systemPrompt)
 
+		// Send the conversation to the LLM and get the response with token usage.
+		// The response may contain tool calls that need to be executed.
 		callStartedAt := time.Now()
 		response, usage, err := m.client.Complete(ctx, systemPrompt, messages, m.toolsProvider())
 		if err != nil {
@@ -143,7 +148,7 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 
 		// Report API call with input, output, and tool calls
 		m.reportAPICall(APICallEvent{
-			TraceID:      turnTraceID,
+			TraceID:      turnID,
 			ParentSpanID: turnSpanID,
 			OLTPProvider: m.provider,
 			StartedAt:    callStartedAt,
@@ -163,16 +168,20 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 		callCount++
 		kind = CallKindToolResult
 
+		// Store the assistant response in the conversation history,
+		// including tool calls as a special message type.
 		storedResponse := *response
-		storedResponse.TurnID = turnTraceID
+		storedResponse.TurnID = turnID
 		if strings.TrimSpace(storedResponse.Content) == "" && len(storedResponse.ToolCalls) > 0 {
 			storedResponse.Content = formatToolCallSummary(storedResponse.ToolCalls)
 		}
 		m.store.AddMessage(storedResponse, m.scope)
 
+		// If the model responded with content without tool calls, or if we've reached the maximum
+		// tool call iterations, end the conversation turn.
 		if len(response.ToolCalls) == 0 {
 			m.reportConversationTurn(TurnEvent{
-				TraceID:    turnTraceID,
+				TraceID:    turnID,
 				SpanID:     turnSpanID,
 				StartedAt:  turnStartedAt,
 				EndedAt:    time.Now(),
@@ -188,34 +197,18 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 			return response.Content, nil
 		}
 
-		if err := m.executeToolCalls(ctx, turnTraceID, response.ToolCalls); err != nil {
+		// If the model responded with tool calls, execute them and feed the results back 
+		// to the model in the next iteration.
+		toolMsgs, err := m.executor.Execute(ctx, turnID, response.ToolCalls)
+		if err != nil {
 			return "", err
+		}
+		for _, msg := range toolMsgs {
+			m.store.AddMessage(msg, m.scope)
 		}
 	}
 
 	return "", fmt.Errorf("exceeded maximum tool call iterations (%d)", maxToolCalls)
-}
-
-func (m *ConversationManager) executeToolCalls(ctx context.Context, turnID string, calls []ToolCall) error {
-	var messages []Message
-	var err error
-
-	if len(calls) == 1 || m.maxConcurrentTools <= 1 {
-		// Execute sequentially for single calls or when concurrency is disabled
-		messages, err = m.executor.ExecuteToolCalls(ctx, turnID, calls)
-	} else {
-		// Execute in parallel with concurrency limit
-		messages, err = m.executor.ExecuteToolCallsParallel(ctx, turnID, calls, m.maxConcurrentTools)
-	}
-
-	if err != nil {
-		return err
-	}
-
-	for _, msg := range messages {
-		m.store.AddMessage(msg, m.scope)
-	}
-	return nil
 }
 
 // formatMessagesAsInput formats the conversation messages as a readable input string for observability

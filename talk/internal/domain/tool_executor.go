@@ -10,12 +10,27 @@ import (
 // ToolExecutor handles the execution of tool calls and returns messages
 // that can be added to the conversation store.
 type ToolExecutor struct {
-	toolsProvider func() []Tool
+	toolsProvider  func() []Tool
+	maxConcurrent int
 }
 
-// NewToolExecutor creates a new ToolExecutor with the given tools provider.
-func NewToolExecutor(toolsProvider func() []Tool) *ToolExecutor {
-	return &ToolExecutor{toolsProvider: toolsProvider}
+// NewToolExecutor creates a new ToolExecutor with the given tools provider and concurrency limit.
+func NewToolExecutor(toolsProvider func() []Tool, maxConcurrent int) *ToolExecutor {
+	return &ToolExecutor{toolsProvider: toolsProvider, maxConcurrent: maxConcurrent}
+}
+
+// Execute runs the given tool calls and returns the resulting messages.
+// It chooses sequential or parallel execution based on the concurrency configuration.
+func (e *ToolExecutor) Execute(ctx context.Context, turnID string, calls []ToolCall) ([]Message, error) {
+	available := e.toolsProvider()
+	if len(available) == 0 {
+		return nil, fmt.Errorf("model requested tool calls but no tools are registered")
+	}
+
+	if len(calls) == 1 || e.maxConcurrent <= 1 {
+		return e.executeSequential(ctx, turnID, calls)
+	}
+	return e.executeParallel(ctx, turnID, calls)
 }
 
 // ExecuteTool executes a single tool call and returns the result.
@@ -36,8 +51,7 @@ func (e *ToolExecutor) ExecuteTool(ctx context.Context, call ToolCall) (ToolResu
 	return ToolResult{}, fmt.Errorf("unknown tool %q", call.Name)
 }
 
-// ExecuteToolCalls executes tool calls sequentially and returns messages to be stored.
-func (e *ToolExecutor) ExecuteToolCalls(ctx context.Context, turnID string, calls []ToolCall) ([]Message, error) {
+func (e *ToolExecutor) executeSequential(ctx context.Context, turnID string, calls []ToolCall) ([]Message, error) {
 	messages := make([]Message, 0, len(calls))
 	for _, call := range calls {
 		result, err := e.ExecuteTool(ctx, call)
@@ -54,12 +68,11 @@ func (e *ToolExecutor) ExecuteToolCalls(ctx context.Context, turnID string, call
 	return messages, nil
 }
 
-// ExecuteToolCallsParallel executes tool calls in parallel and returns messages to be stored.
-func (e *ToolExecutor) ExecuteToolCallsParallel(ctx context.Context, turnID string, calls []ToolCall, maxConcurrent int) ([]Message, error) {
+func (e *ToolExecutor) executeParallel(ctx context.Context, turnID string, calls []ToolCall) ([]Message, error) {
 	results := make([]ToolResult, len(calls))
 	errors := make([]error, len(calls))
 
-	sem := make(chan struct{}, maxConcurrent)
+	sem := make(chan struct{}, e.maxConcurrent)
 	var wg sync.WaitGroup
 
 	for i, call := range calls {

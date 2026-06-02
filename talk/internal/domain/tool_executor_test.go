@@ -45,7 +45,7 @@ func TestToolExecutor_ExecuteTool(t *testing.T) {
 					return map[string]any{"result": "hello"}, nil
 				},
 			}},
-			call: ToolCall{ID: "call-1", Name: "test-tool", Input: map[string]any{"param": "value"}},
+			call:    ToolCall{ID: "call-1", Name: "test-tool", Input: map[string]any{"param": "value"}},
 			wantErr: false,
 		},
 		{
@@ -73,7 +73,7 @@ func TestToolExecutor_ExecuteTool(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			executor := NewToolExecutor(func() []Tool { return tt.tools })
+			executor := NewToolExecutor(func() []Tool { return tt.tools }, 1)
 			result, err := executor.ExecuteTool(context.Background(), tt.call)
 
 			if tt.wantErr {
@@ -98,7 +98,22 @@ func TestToolExecutor_ExecuteTool(t *testing.T) {
 	}
 }
 
-func TestToolExecutor_ExecuteToolCalls(t *testing.T) {
+func TestToolExecutor_Execute_NoToolsRegistered(t *testing.T) {
+	executor := NewToolExecutor(func() []Tool { return nil }, 1)
+	calls := []ToolCall{
+		{ID: "call-1", Name: "ghost-tool", Input: map[string]any{}},
+	}
+
+	_, err := executor.Execute(context.Background(), "turn-1", calls)
+	if err == nil {
+		t.Fatal("expected error when no tools are registered")
+	}
+	if !strings.Contains(err.Error(), "no tools are registered") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestToolExecutor_Execute_Sequential(t *testing.T) {
 	tools := []Tool{&mockTool{
 		name: "test-tool",
 		executeFunc: func(ctx context.Context, input map[string]any) (map[string]any, error) {
@@ -106,13 +121,13 @@ func TestToolExecutor_ExecuteToolCalls(t *testing.T) {
 		},
 	}}
 
-	executor := NewToolExecutor(func() []Tool { return tools })
+	executor := NewToolExecutor(func() []Tool { return tools }, 1)
 	calls := []ToolCall{
 		{ID: "call-1", Name: "test-tool", Input: map[string]any{"value": "first"}},
 		{ID: "call-2", Name: "test-tool", Input: map[string]any{"value": "second"}},
 	}
 
-	messages, err := executor.ExecuteToolCalls(context.Background(), "turn-123", calls)
+	messages, err := executor.Execute(context.Background(), "turn-123", calls)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -137,7 +152,7 @@ func TestToolExecutor_ExecuteToolCalls(t *testing.T) {
 	}
 }
 
-func TestToolExecutor_ExecuteToolCalls_Error(t *testing.T) {
+func TestToolExecutor_Execute_Error(t *testing.T) {
 	tools := []Tool{&mockTool{
 		name: "error-tool",
 		executeFunc: func(ctx context.Context, input map[string]any) (map[string]any, error) {
@@ -145,18 +160,18 @@ func TestToolExecutor_ExecuteToolCalls_Error(t *testing.T) {
 		},
 	}}
 
-	executor := NewToolExecutor(func() []Tool { return tools })
+	executor := NewToolExecutor(func() []Tool { return tools }, 1)
 	calls := []ToolCall{
 		{ID: "call-1", Name: "error-tool", Input: map[string]any{}},
 	}
 
-	_, err := executor.ExecuteToolCalls(context.Background(), "turn-123", calls)
+	_, err := executor.Execute(context.Background(), "turn-123", calls)
 	if err == nil {
 		t.Error("expected error, got nil")
 	}
 }
 
-func TestToolExecutor_ExecuteToolCallsParallel(t *testing.T) {
+func TestToolExecutor_Execute_Parallel(t *testing.T) {
 	tools := []Tool{&mockTool{
 		name: "test-tool",
 		executeFunc: func(ctx context.Context, input map[string]any) (map[string]any, error) {
@@ -164,14 +179,14 @@ func TestToolExecutor_ExecuteToolCallsParallel(t *testing.T) {
 		},
 	}}
 
-	executor := NewToolExecutor(func() []Tool { return tools })
+	executor := NewToolExecutor(func() []Tool { return tools }, 2)
 	calls := []ToolCall{
 		{ID: "call-1", Name: "test-tool", Input: map[string]any{"value": "parallel-1"}},
 		{ID: "call-2", Name: "test-tool", Input: map[string]any{"value": "parallel-2"}},
 		{ID: "call-3", Name: "test-tool", Input: map[string]any{"value": "parallel-3"}},
 	}
 
-	messages, err := executor.ExecuteToolCallsParallel(context.Background(), "turn-456", calls, 2)
+	messages, err := executor.Execute(context.Background(), "turn-456", calls)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -190,7 +205,7 @@ func TestToolExecutor_ExecuteToolCallsParallel(t *testing.T) {
 	}
 }
 
-func TestToolExecutor_ExecuteToolCallsParallel_Error(t *testing.T) {
+func TestToolExecutor_Execute_Parallel_Error(t *testing.T) {
 	tools := []Tool{&mockTool{
 		name: "error-tool",
 		executeFunc: func(ctx context.Context, input map[string]any) (map[string]any, error) {
@@ -198,13 +213,13 @@ func TestToolExecutor_ExecuteToolCallsParallel_Error(t *testing.T) {
 		},
 	}}
 
-	executor := NewToolExecutor(func() []Tool { return tools })
+	executor := NewToolExecutor(func() []Tool { return tools }, 2)
 	calls := []ToolCall{
 		{ID: "call-1", Name: "error-tool", Input: map[string]any{}},
 		{ID: "call-2", Name: "error-tool", Input: map[string]any{}},
 	}
 
-	_, err := executor.ExecuteToolCallsParallel(context.Background(), "turn-789", calls, 2)
+	_, err := executor.Execute(context.Background(), "turn-789", calls)
 	if err == nil {
 		t.Error("expected error, got nil")
 	}
@@ -221,12 +236,12 @@ func TestToolExecutor_ResultContentIsJSON(t *testing.T) {
 		},
 	}}
 
-	executor := NewToolExecutor(func() []Tool { return tools })
+	executor := NewToolExecutor(func() []Tool { return tools }, 1)
 	calls := []ToolCall{
 		{ID: "call-1", Name: "complex-tool", Input: map[string]any{}},
 	}
 
-	messages, err := executor.ExecuteToolCalls(context.Background(), "turn-1", calls)
+	messages, err := executor.Execute(context.Background(), "turn-1", calls)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -259,7 +274,7 @@ func (m *unmarshalableTool) Execute(ctx context.Context, input map[string]any) (
 func TestToolExecutor_JSONMarshalError(t *testing.T) {
 	tools := []Tool{&unmarshalableTool{mockTool{name: "bad-tool"}}}
 
-	executor := NewToolExecutor(func() []Tool { return tools })
+	executor := NewToolExecutor(func() []Tool { return tools }, 1)
 	call := ToolCall{ID: "call-1", Name: "bad-tool", Input: map[string]any{}}
 
 	_, err := executor.ExecuteTool(context.Background(), call)
