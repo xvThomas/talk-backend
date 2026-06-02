@@ -25,9 +25,11 @@ type stubRegistry struct {
 	err     error
 }
 
-func (r *stubRegistry) Add(_ context.Context, _ ServerConfig) error          { return nil }
-func (r *stubRegistry) Remove(_ context.Context, _ string) error             { return nil }
-func (r *stubRegistry) Get(_ context.Context, _ string) (ServerConfig, error) { return ServerConfig{}, nil }
+func (r *stubRegistry) Add(_ context.Context, _ ServerConfig) error { return nil }
+func (r *stubRegistry) Remove(_ context.Context, _ string) error    { return nil }
+func (r *stubRegistry) Get(_ context.Context, _ string) (ServerConfig, error) {
+	return ServerConfig{}, nil
+}
 func (r *stubRegistry) List(_ context.Context) ([]ServerConfig, error) {
 	return r.configs, r.err
 }
