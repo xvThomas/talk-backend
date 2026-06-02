@@ -51,7 +51,7 @@ func NewConversationManager(cfg ConversationManagerConfig) *ConversationManager 
 		promptProvider: cfg.PromptProvider,
 		toolsProvider:  cfg.Tools,
 		reporters:      cfg.Reporters,
-		contextBuilder: NewContextBuilder(cfg.Store, cfg.SessionBrowser, cfg.Scope.SessionID, cfg.ContextFullTurns),
+		contextBuilder: NewContextBuilder(cfg.Store, cfg.SessionBrowser, cfg.Scope.SessionID(), cfg.ContextFullTurns),
 		executor:       NewToolExecutor(cfg.Tools, cfg.MaxConcurrentTools),
 	}
 }
@@ -59,7 +59,7 @@ func NewConversationManager(cfg ConversationManagerConfig) *ConversationManager 
 // SetScope updates the active session scope for the conversation manager.
 func (m *ConversationManager) SetScope(scope SessionScope) {
 	m.scope = scope
-	m.contextBuilder.sessionID = scope.SessionID
+	m.contextBuilder.sessionID = scope.SessionID()
 }
 
 // reportAPICall calls OnAPICall on all reporters in parallel.
@@ -159,8 +159,8 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 			Input:        conversationInput,
 			Output:       formatAPICallOutput(response.Content, response.ToolCalls),
 			ToolCalls:    response.ToolCalls,
-			SessionID:    m.scope.SessionID,
-			UserID:       m.scope.UserID,
+			SessionID:    m.scope.SessionID(),
+			UserID:       m.scope.UserID(),
 		})
 
 		totalUsage = totalUsage.Add(usage)
@@ -191,13 +191,13 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 				Input:      userInput,
 				Output:     response.Content,
 				ToolCalls:  allToolCalls,
-				SessionID:  m.scope.SessionID,
-				UserID:     m.scope.UserID,
+				SessionID:  m.scope.SessionID(),
+				UserID:     m.scope.UserID(),
 			})
 			return response.Content, nil
 		}
 
-		// If the model responded with tool calls, execute them and feed the results back 
+		// If the model responded with tool calls, execute them and feed the results back
 		// to the model in the next iteration.
 		toolMsgs, err := m.executor.Execute(ctx, turnID, response.ToolCalls)
 		if err != nil {

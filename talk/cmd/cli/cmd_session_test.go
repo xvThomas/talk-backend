@@ -27,7 +27,7 @@ func TestCmdMemory_ShowsTurns(t *testing.T) {
 	p := &spyPrinter{}
 	app := newTestApp(p)
 	sb := newFakeSessionBrowser()
-	sb.turns[app.Scope.SessionID] = []domain.HistoryTurn{
+	sb.turns[app.Scope.SessionID()] = []domain.HistoryTurn{
 		{Question: "Hello", Answer: "Hi there!", At: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)},
 	}
 	app.Sessions = sb
@@ -51,9 +51,9 @@ func TestCmdMemory_ShowsTitleAndMultipleCalls(t *testing.T) {
 	app := newTestApp(p)
 	sb := newFakeSessionBrowser()
 	sb.sessions = []domain.SessionSummary{
-		{ID: app.Scope.SessionID, Title: "My Topic"},
+		{ID: app.Scope.SessionID(), Title: "My Topic"},
 	}
-	sb.turns[app.Scope.SessionID] = []domain.HistoryTurn{
+	sb.turns[app.Scope.SessionID()] = []domain.HistoryTurn{
 		{Question: "Q1", Answer: "A1", At: time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC), TurnID: "turn-1", CallCount: 3},
 	}
 	app.Sessions = sb
@@ -79,7 +79,7 @@ func TestCmdSession_DefaultIsList(t *testing.T) {
 	app := newTestApp(p)
 	sb := newFakeSessionBrowser()
 	sb.sessions = []domain.SessionSummary{
-		{ID: app.Scope.SessionID, Title: "Chat", CreatedAt: time.Date(2025, 3, 1, 9, 0, 0, 0, time.UTC), TurnCount: 2},
+		{ID: app.Scope.SessionID(), Title: "Chat", CreatedAt: time.Date(2025, 3, 1, 9, 0, 0, 0, time.UTC), TurnCount: 2},
 	}
 	app.Sessions = sb
 	app.LR = newScriptReader("") // cancel
@@ -124,7 +124,7 @@ func TestCmdSessionList_ShowsSessionsWithTitleAndTurns(t *testing.T) {
 	app := newTestApp(p)
 	sb := newFakeSessionBrowser()
 	sb.sessions = []domain.SessionSummary{
-		{ID: app.Scope.SessionID, Title: "My Chat", CreatedAt: time.Date(2025, 3, 1, 9, 0, 0, 0, time.UTC), TurnCount: 5},
+		{ID: app.Scope.SessionID(), Title: "My Chat", CreatedAt: time.Date(2025, 3, 1, 9, 0, 0, 0, time.UTC), TurnCount: 5},
 		{ID: "other-0000-0000-0000-000000000000", Title: "", CreatedAt: time.Date(2025, 3, 2, 10, 0, 0, 0, time.UTC), TurnCount: 1},
 	}
 	app.Sessions = sb
@@ -164,8 +164,8 @@ func TestCmdSessionList_SwitchByNumber(t *testing.T) {
 	if !strings.Contains(out, "Switched to session") {
 		t.Errorf("expected 'Switched to session', got: %s", out)
 	}
-	if app.Scope.SessionID != "bbbb0000-0000-0000-0000-000000000000" {
-		t.Errorf("expected session bbbb..., got: %s", app.Scope.SessionID)
+	if app.Scope.SessionID() != "bbbb0000-0000-0000-0000-000000000000" {
+		t.Errorf("expected session bbbb..., got: %s", app.Scope.SessionID())
 	}
 }
 
@@ -229,14 +229,14 @@ func TestCmdSessionNew_CreatesSession(t *testing.T) {
 	p := &spyPrinter{}
 	app := newTestApp(p)
 
-	origID := app.Scope.SessionID
+	origID := app.Scope.SessionID()
 	app.cmdSessionNew(context.Background())
 
 	out := p.Output()
 	if !strings.Contains(out, "New session created") {
 		t.Errorf("expected 'New session created', got: %s", out)
 	}
-	if app.Scope.SessionID == origID {
+	if app.Scope.SessionID() == origID {
 		t.Error("expected sessionID to change")
 	}
 }
@@ -260,7 +260,7 @@ func TestCmdSessionRemove_RemovesSession(t *testing.T) {
 	app := newTestApp(p)
 	sb := newFakeSessionBrowser()
 	sb.sessions = []domain.SessionSummary{
-		{ID: app.Scope.SessionID, Title: "current one", CreatedAt: time.Date(2025, 3, 1, 9, 0, 0, 0, time.UTC), TurnCount: 2},
+		{ID: app.Scope.SessionID(), Title: "current one", CreatedAt: time.Date(2025, 3, 1, 9, 0, 0, 0, time.UTC), TurnCount: 2},
 		{ID: "other-0000-0000-0000-000000000000", Title: "other one", CreatedAt: time.Date(2025, 3, 2, 10, 0, 0, 0, time.UTC), TurnCount: 1},
 	}
 	app.Sessions = sb
@@ -282,7 +282,7 @@ func TestCmdSessionRemove_CannotRemoveCurrent(t *testing.T) {
 	app := newTestApp(p)
 	sb := newFakeSessionBrowser()
 	sb.sessions = []domain.SessionSummary{
-		{ID: app.Scope.SessionID, Title: "current one"},
+		{ID: app.Scope.SessionID(), Title: "current one"},
 		{ID: "other-0000-0000-0000-000000000000", Title: "other one"},
 	}
 	app.Sessions = sb

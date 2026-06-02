@@ -50,14 +50,14 @@ func (s *stubStore) AddMessage(msg Message, scope SessionScope) {
 	if s.messages == nil {
 		s.messages = make(map[string][]Message)
 	}
-	s.messages[scope.SessionID] = append(s.messages[scope.SessionID], msg)
+	s.messages[scope.SessionID()] = append(s.messages[scope.SessionID()], msg)
 	if msg.TurnID == "" {
 		return
 	}
 	if s.history == nil {
 		s.history = make(map[string][]HistoryTurn)
 	}
-	turns := s.history[scope.SessionID]
+	turns := s.history[scope.SessionID()]
 	switch {
 	case msg.Role == RoleUser && msg.Content != "":
 		turns = append(turns, HistoryTurn{TurnID: msg.TurnID, Question: msg.Content, At: time.Now()})
@@ -69,7 +69,7 @@ func (s *stubStore) AddMessage(msg Message, scope SessionScope) {
 			}
 		}
 	}
-	s.history[scope.SessionID] = turns
+	s.history[scope.SessionID()] = turns
 }
 func (s *stubStore) AllMessages(sessionID string) []Message {
 	if s.messages == nil {

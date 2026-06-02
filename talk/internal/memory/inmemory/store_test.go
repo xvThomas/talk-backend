@@ -15,7 +15,7 @@ func TestStore_AddAndAll(t *testing.T) {
 	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "hello"}, scope)
 	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "world"}, scope)
 
-	msgs := s.AllMessages(scope.SessionID)
+	msgs := s.AllMessages(scope.SessionID())
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(msgs))
 	}
@@ -44,7 +44,7 @@ func TestStore_SessionNotMaterializedUntilUserMessage(t *testing.T) {
 	}
 
 	// AllMessages should return nil for unmaterialized session
-	msgs := s.AllMessages(scope.SessionID)
+	msgs := s.AllMessages(scope.SessionID())
 	if msgs != nil {
 		t.Fatalf("expected nil messages for unmaterialized session, got %d", len(msgs))
 	}
@@ -77,8 +77,8 @@ func TestStore_Clear(t *testing.T) {
 	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "hello"}, scope)
 	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "hi"}, scope)
 
-	s.ClearMessages(scope.SessionID)
-	msgs := s.AllMessages(scope.SessionID)
+	s.ClearMessages(scope.SessionID())
+	msgs := s.AllMessages(scope.SessionID())
 	if len(msgs) != 0 {
 		t.Fatalf("expected 0 messages after clear, got %d", len(msgs))
 	}
@@ -87,8 +87,8 @@ func TestStore_Clear(t *testing.T) {
 func TestStore_ClearUnmaterializedSession(t *testing.T) {
 	s, _ := New()
 	// Clear on unmaterialized session should not panic
-	s.ClearMessages(scope.SessionID)
-	msgs := s.AllMessages(scope.SessionID)
+	s.ClearMessages(scope.SessionID())
+	msgs := s.AllMessages(scope.SessionID())
 	if msgs != nil {
 		t.Fatalf("expected nil, got %v", msgs)
 	}
@@ -103,20 +103,20 @@ func TestStore_MultiSession(t *testing.T) {
 	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "a1"}, scope)
 
 	// Second session has no messages yet
-	msgs := s.AllMessages(scope2.SessionID)
+	msgs := s.AllMessages(scope2.SessionID())
 	if msgs != nil {
 		t.Fatalf("expected nil messages for new session, got %d", len(msgs))
 	}
 
 	// Add message to second session
 	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q2"}, scope2)
-	msgs = s.AllMessages(scope2.SessionID)
+	msgs = s.AllMessages(scope2.SessionID())
 	if len(msgs) != 1 || msgs[0].Content != "q2" {
 		t.Errorf("unexpected messages in session 2: %v", msgs)
 	}
 
 	// First session still has its messages
-	msgs = s.AllMessages(scope.SessionID)
+	msgs = s.AllMessages(scope.SessionID())
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages in session 1, got %d", len(msgs))
 	}
@@ -199,7 +199,7 @@ func TestStore_LoadSessionBuildsTurns(t *testing.T) {
 	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q2"}, scope)
 	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "a2"}, scope)
 
-	turns, err := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID)
+	turns, err := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestStore_LoadSessionUserWithoutAnswer(t *testing.T) {
 	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q1"}, scope)
 	// No assistant reply
 
-	turns, _ := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID)
+	turns, _ := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID())
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn, got %d", len(turns))
 	}
@@ -235,7 +235,7 @@ func TestStore_LoadSessionTimestampsAreSet(t *testing.T) {
 	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "a1"}, scope)
 	after := time.Now()
 
-	turns, _ := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID)
+	turns, _ := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID())
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn, got %d", len(turns))
 	}
@@ -248,10 +248,10 @@ func TestStore_AllReturnsCopy(t *testing.T) {
 	s, _ := New()
 	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "hello"}, scope)
 
-	msgs := s.AllMessages(scope.SessionID)
+	msgs := s.AllMessages(scope.SessionID())
 	msgs[0].Content = "modified"
 
-	original := s.AllMessages(scope.SessionID)
+	original := s.AllMessages(scope.SessionID())
 	if original[0].Content != "hello" {
 		t.Error("AllMessages() did not return a copy; modification affected store")
 	}
@@ -261,7 +261,7 @@ func TestStore_DeleteSession(t *testing.T) {
 	s, b := New()
 	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "msg"}, scope)
 
-	if err := b.DeleteSession(context.Background(), scope.SessionID); err != nil {
+	if err := b.DeleteSession(context.Background(), scope.SessionID()); err != nil {
 		t.Fatal(err)
 	}
 

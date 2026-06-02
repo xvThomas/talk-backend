@@ -61,7 +61,7 @@ func newFakeStore() *fakeStore {
 }
 
 func (s *fakeStore) AddMessage(msg domain.Message, scope domain.SessionScope) {
-	s.messages[scope.SessionID] = append(s.messages[scope.SessionID], msg)
+	s.messages[scope.SessionID()] = append(s.messages[scope.SessionID()], msg)
 }
 func (s *fakeStore) AllMessages(sessionID string) []domain.Message { return s.messages[sessionID] }
 func (s *fakeStore) ClearMessages(sessionID string)                { delete(s.messages, sessionID) }

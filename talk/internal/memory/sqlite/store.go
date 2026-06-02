@@ -101,7 +101,7 @@ func (r *MessageRepository) AddMessage(msg domain.Message, scope domain.SessionS
 	defer r.mu.Unlock()
 
 	// Check if session is materialized.
-	materialized := r.isSessionMaterialized(scope.SessionID)
+	materialized := r.isSessionMaterialized(scope.SessionID())
 	if !materialized {
 		if msg.Role != domain.RoleUser {
 			return
@@ -110,7 +110,7 @@ func (r *MessageRepository) AddMessage(msg domain.Message, scope domain.SessionS
 		title := msg.Content
 		if _, err := r.conn.Exec(
 			"INSERT INTO sessions (id, user_id, title, created_at) VALUES (?, ?, ?, ?)",
-			scope.SessionID, scope.UserID, title, time.Now().UTC().Format(timeFormat),
+			scope.SessionID(), scope.UserID(), title, time.Now().UTC().Format(timeFormat),
 		); err != nil {
 			return
 		}
@@ -146,12 +146,12 @@ func (r *MessageRepository) AddMessage(msg domain.Message, scope domain.SessionS
 
 	if _, err := r.conn.Exec(
 		"INSERT INTO messages (session_id, role, content, tool_name, tool_input, tool_output, tool_call_id, turn_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		scope.SessionID, string(msg.Role), content, toolName, toolInput, toolOutput, toolCallID, msg.TurnID, now,
+		scope.SessionID(), string(msg.Role), content, toolName, toolInput, toolOutput, toolCallID, msg.TurnID, now,
 	); err != nil {
 		return
 	}
 
-	r.upsertHistoryTurn(scope.SessionID, msg, now)
+	r.upsertHistoryTurn(scope.SessionID(), msg, now)
 }
 
 func (r *MessageRepository) isSessionMaterialized(sessionID string) bool {

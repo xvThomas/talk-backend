@@ -36,14 +36,20 @@ type HistoryTurn struct {
 // SessionScope identifies the current conversation context.
 // It is an immutable value type; switching sessions means creating a new SessionScope.
 type SessionScope struct {
-	SessionID string
-	UserID    string
+	sessionID string
+	userID    string
 }
 
 // NewSessionScope creates a SessionScope.
 func NewSessionScope(sessionID, userID string) SessionScope {
-	return SessionScope{SessionID: sessionID, UserID: userID}
+	return SessionScope{sessionID: sessionID, userID: userID}
 }
+
+// SessionID returns the session identifier.
+func (s SessionScope) SessionID() string { return s.sessionID }
+
+// UserID returns the user identifier.
+func (s SessionScope) UserID() string { return s.userID }
 
 // MessageStore persists conversation messages.
 // Implementations are fully stateless — all identity context is passed via parameters.

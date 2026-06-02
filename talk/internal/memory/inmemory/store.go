@@ -43,13 +43,13 @@ var _ domain.SessionBrowser = (*Browser)(nil)
 func (r *MessageRepository) AddMessage(msg domain.Message, scope domain.SessionScope) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	sd, exists := r.sessions[scope.SessionID]
+	sd, exists := r.sessions[scope.SessionID()]
 	if !exists {
 		if msg.Role != domain.RoleUser {
 			return
 		}
 		sd = &sessionData{title: msg.Content, createdAt: time.Now()}
-		r.sessions[scope.SessionID] = sd
+		r.sessions[scope.SessionID()] = sd
 	}
 	sd.messages = append(sd.messages, msg)
 	sd.timestamps = append(sd.timestamps, time.Now())

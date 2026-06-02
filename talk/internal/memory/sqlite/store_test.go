@@ -31,7 +31,7 @@ func TestStore_AddAndAll(t *testing.T) {
 	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "hello"}, scope)
 	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "world"}, scope)
 
-	msgs := s.AllMessages(scope.SessionID)
+	msgs := s.AllMessages(scope.SessionID())
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(msgs))
 	}
@@ -60,7 +60,7 @@ func TestStore_SessionNotMaterializedUntilUserMessage(t *testing.T) {
 	}
 
 	// AllMessages should return nil for unmaterialized session
-	msgs := s.AllMessages(scope.SessionID)
+	msgs := s.AllMessages(scope.SessionID())
 	if msgs != nil {
 		t.Fatalf("expected nil messages for unmaterialized session, got %d", len(msgs))
 	}
@@ -93,8 +93,8 @@ func TestStore_Clear(t *testing.T) {
 	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "hello"}, scope)
 	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "hi"}, scope)
 
-	s.ClearMessages(scope.SessionID)
-	msgs := s.AllMessages(scope.SessionID)
+	s.ClearMessages(scope.SessionID())
+	msgs := s.AllMessages(scope.SessionID())
 	if len(msgs) != 0 {
 		t.Fatalf("expected 0 messages after clear, got %d", len(msgs))
 	}
@@ -103,8 +103,8 @@ func TestStore_Clear(t *testing.T) {
 func TestStore_ClearUnmaterializedSession(t *testing.T) {
 	s, _, _ := newTestStore(t)
 	// Clear on unmaterialized session should not panic
-	s.ClearMessages(scope.SessionID)
-	msgs := s.AllMessages(scope.SessionID)
+	s.ClearMessages(scope.SessionID())
+	msgs := s.AllMessages(scope.SessionID())
 	if msgs != nil {
 		t.Fatalf("expected nil, got %v", msgs)
 	}
@@ -119,20 +119,20 @@ func TestStore_MultiSession(t *testing.T) {
 	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "a1"}, scope)
 
 	// New session has no messages yet
-	msgs := s.AllMessages(scope2.SessionID)
+	msgs := s.AllMessages(scope2.SessionID())
 	if msgs != nil {
 		t.Fatalf("expected nil messages for new session, got %d", len(msgs))
 	}
 
 	// Add message to second session
 	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q2"}, scope2)
-	msgs = s.AllMessages(scope2.SessionID)
+	msgs = s.AllMessages(scope2.SessionID())
 	if len(msgs) != 1 || msgs[0].Content != "q2" {
 		t.Errorf("unexpected messages in session 2: %v", msgs)
 	}
 
 	// First session still has its messages
-	msgs = s.AllMessages(scope.SessionID)
+	msgs = s.AllMessages(scope.SessionID())
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages in session 1, got %d", len(msgs))
 	}
@@ -249,7 +249,7 @@ func TestStore_LoadSessionBuildsTurns(t *testing.T) {
 	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q2"}, scope)
 	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "a2"}, scope)
 
-	turns, err := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID)
+	turns, err := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestStore_LoadSessionUserWithoutAnswer(t *testing.T) {
 	s, b, _ := newTestStore(t)
 	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q1"}, scope)
 
-	turns, _ := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID)
+	turns, _ := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID())
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn, got %d", len(turns))
 	}
@@ -284,7 +284,7 @@ func TestStore_LoadSessionTimestampsAreSet(t *testing.T) {
 	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "a1"}, scope)
 	after := time.Now().Add(time.Second)
 
-	turns, _ := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID)
+	turns, _ := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID())
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn, got %d", len(turns))
 	}
@@ -297,10 +297,10 @@ func TestStore_AllMessagesDoesNotShareState(t *testing.T) {
 	s, _, _ := newTestStore(t)
 	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "hello"}, scope)
 
-	msgs := s.AllMessages(scope.SessionID)
+	msgs := s.AllMessages(scope.SessionID())
 	msgs[0].Content = "modified"
 
-	original := s.AllMessages(scope.SessionID)
+	original := s.AllMessages(scope.SessionID())
 	if original[0].Content != "hello" {
 		t.Error("AllMessages() did not return independent data; modification affected store")
 	}
@@ -326,7 +326,7 @@ func TestStore_PersistenceAcrossReopen(t *testing.T) {
 	}
 	defer func() { _ = r2.Close() }()
 
-	msgs := r2.AllMessages(scope.SessionID)
+	msgs := r2.AllMessages(scope.SessionID())
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages after reopen, got %d", len(msgs))
 	}
@@ -395,7 +395,7 @@ func TestStore_AddToolMessagePersistsToolMetadata(t *testing.T) {
 	var toolName, toolInput, toolOutput, toolCallID string
 	err := s.conn.QueryRow(
 		"SELECT tool_name, tool_input, tool_output, tool_call_id FROM messages WHERE session_id = ? AND role = ? ORDER BY id DESC LIMIT 1",
-		scope.SessionID,
+		scope.SessionID(),
 		string(domain.RoleTool),
 	).Scan(&toolName, &toolInput, &toolOutput, &toolCallID)
 	if err != nil {
@@ -433,7 +433,7 @@ func TestStore_AssistantToolCallsRoundTrip(t *testing.T) {
 	}, scope)
 
 	// Re-read from DB to verify round-trip
-	msgs := s.AllMessages(scope.SessionID)
+	msgs := s.AllMessages(scope.SessionID())
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages after reload, got %d", len(msgs))
 	}
