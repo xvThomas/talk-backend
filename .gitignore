@@ -9,6 +9,8 @@ bin/
 # Coverage artefacts
 coverage.out
 coverage.html
+coverage-libs.out
+coverage
 
 #misc
 tmp/
