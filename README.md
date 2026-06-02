@@ -46,23 +46,69 @@ The project uses **Go workspaces** (`go.work`) with five independent modules:
 
 ## Quickstart
 
+### 1. Clone & build
+
 ```bash
-# 1. Clone
 git clone https://github.com/xvThomas/LLMClientWrapper.git
 cd LLMClientWrapper
+make build
+```
 
-# 2. Copy and fill in your API keys
+### 2. Run the CLI (`talk`)
+
+```bash
+cd talk
 cp .env.example .env
+# Fill in at least one provider key (ANTHROPIC_API_KEY, OPENAI_API_KEY, or MISTRAL_API_KEY)
 $EDITOR .env
 
-# 3. Build all binaries
-make build
+make run
+```
 
-# 4. Start an interactive CLI session
-cd talk && make run MODEL=sonnet-4.6
+See [talk/README.md](talk/README.md) for available models and CLI commands.
 
-# 5. Start the OpenWeather MCP server (hot-reload)
-cd mcp-owm && make dev
+### 3. Run an MCP server
+
+#### OpenWeatherMap (`mcp-owm`)
+
+```bash
+cd mcp-owm
+cp .env.example .env
+# Fill in OPENWEATHERMAP_API_KEY
+$EDITOR .env
+
+make dev                          # hot-reload, HTTP SSE/Streamable on localhost:8080
+# or
+make run TRANSPORT=stdio          # stdio mode (for Claude Desktop / MCP clients)
+```
+
+#### IGN Navigation (`mcp-ign-nav`)
+
+```bash
+cd mcp-ign-nav
+cp .env.example .env              # no API key needed (IGN API is public)
+
+make dev
+```
+
+#### Playground (template)
+
+```bash
+cd mcp-playground
+make dev
+```
+
+See each module's README for full configuration (authentication, Docker, transport options).
+
+### 4. Connect the CLI to MCP servers
+
+Once a server is running, use the `/mcp add` command inside the CLI REPL:
+
+```
+You: /mcp add
+Server name: owm
+Server URL: http://localhost:8080
+Auth type [none/apikey/oauth] (default: apikey): none
 ```
 
 ---
