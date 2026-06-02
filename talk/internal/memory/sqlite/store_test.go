@@ -444,3 +444,215 @@ func TestStore_AssistantToolCallsRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected tool call names after reload: %+v", msgs[1].ToolCalls)
 	}
 }
+
+// --- Error and edge-case tests to improve coverage ---
+
+func TestStore_DeleteSession(t *testing.T) {
+	s, b, _ := newTestStore(t)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "hello", TurnID: "t1"}, scope)
+	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "hi", TurnID: "t1"}, scope)
+
+	err := b.DeleteSession(context.Background(), scope.SessionID())
+	if err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+
+	// Session and messages should be gone.
+	sessions, _ := b.ListSessions(context.Background(), "user1")
+	if len(sessions) != 0 {
+		t.Errorf("expected 0 sessions after delete, got %d", len(sessions))
+	}
+	msgs := s.AllMessages(scope.SessionID())
+	if msgs != nil {
+		t.Errorf("expected nil messages after delete, got %d", len(msgs))
+	}
+	// History turns should be gone too.
+	turns, _ := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID())
+	if turns != nil {
+		t.Errorf("expected nil turns after delete, got %d", len(turns))
+	}
+}
+
+func TestStore_DeleteSession_NonExistent(t *testing.T) {
+	_, b, _ := newTestStore(t)
+	// Deleting a non-existent session should not error.
+	err := b.DeleteSession(context.Background(), "does-not-exist")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestStore_AddMessage_AfterClose(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	s, _, err := New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+
+	// Operations on a closed DB should not panic (they silently fail).
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "hello"}, scope)
+	msgs := s.AllMessages(scope.SessionID())
+	if msgs != nil {
+		t.Errorf("expected nil messages on closed DB, got %d", len(msgs))
+	}
+}
+
+func TestStore_ClearMessages_AfterClose(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	s, _, err := New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	// Should not panic.
+	s.ClearMessages(scope.SessionID())
+}
+
+func TestStore_ListSessions_AfterClose(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	_, b, err := New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = b.Close()
+
+	_, err = b.ListSessions(context.Background(), "user1")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestStore_LoadHistoryTurns_AfterClose(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	_, b, err := New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = b.Close()
+
+	_, err = b.LoadHistoryTurnsFromSession(context.Background(), "sess-1")
+	if err == nil {
+		t.Error("expected error on closed DB")
+	}
+}
+
+func TestStore_HistoryTurn_UpsertOnMultipleMessages(t *testing.T) {
+	s, b, _ := newTestStore(t)
+	turnID := "turn-upsert-1"
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "question", TurnID: turnID}, scope)
+	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "answer", TurnID: turnID}, scope)
+
+	turns, err := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 {
+		t.Fatalf("expected 1 turn, got %d", len(turns))
+	}
+	if turns[0].Question != "question" || turns[0].Answer != "answer" {
+		t.Errorf("got Q=%q A=%q", turns[0].Question, turns[0].Answer)
+	}
+}
+
+func TestStore_HistoryTurn_ToolMessagesDoNotCreateTurns(t *testing.T) {
+	s, b, _ := newTestStore(t)
+	turnID := "turn-tool-1"
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "question", TurnID: turnID}, scope)
+	// An assistant message WITH tool calls should not create a turn answer.
+	s.AddMessage(domain.Message{
+		Role:      domain.RoleAssistant,
+		Content:   "calling tool",
+		TurnID:    turnID,
+		ToolCalls: []domain.ToolCall{{ID: "c1", Name: "t1", Input: map[string]any{}}},
+	}, scope)
+	// A tool result should not create a turn.
+	s.AddMessage(domain.Message{
+		Role:        domain.RoleTool,
+		TurnID:      turnID,
+		ToolResults: []domain.ToolResult{{ToolCallID: "c1", Content: "result"}},
+	}, scope)
+	// The final assistant answer without tool calls should update the turn.
+	s.AddMessage(domain.Message{Role: domain.RoleAssistant, Content: "final answer", TurnID: turnID}, scope)
+
+	turns, _ := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID())
+	if len(turns) != 1 {
+		t.Fatalf("expected 1 turn, got %d", len(turns))
+	}
+	if turns[0].Answer != "final answer" {
+		t.Errorf("expected answer %q, got %q", "final answer", turns[0].Answer)
+	}
+}
+
+func TestStore_ToolMessageWithoutToolCalls(t *testing.T) {
+	s, _, _ := newTestStore(t)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q"}, scope)
+	// A tool message with only ToolResults (no ToolCalls) should still persist.
+	s.AddMessage(domain.Message{
+		Role:        domain.RoleTool,
+		TurnID:      "t1",
+		ToolResults: []domain.ToolResult{{ToolCallID: "call-99", Content: "output"}},
+	}, scope)
+
+	msgs := s.AllMessages(scope.SessionID())
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+	toolMsg := msgs[1]
+	if len(toolMsg.ToolResults) != 1 || toolMsg.ToolResults[0].Content != "output" {
+		t.Errorf("unexpected tool results: %+v", toolMsg.ToolResults)
+	}
+}
+
+func TestStore_EmptyContentMessages(t *testing.T) {
+	s, _, _ := newTestStore(t)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "start"}, scope)
+	// Assistant message with empty content but tool calls should be stored.
+	s.AddMessage(domain.Message{
+		Role:      domain.RoleAssistant,
+		Content:   "",
+		ToolCalls: []domain.ToolCall{{ID: "c1", Name: "tool1", Input: map[string]any{"a": "b"}}},
+	}, scope)
+
+	msgs := s.AllMessages(scope.SessionID())
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+	if len(msgs[1].ToolCalls) != 1 {
+		t.Errorf("expected 1 tool call, got %d", len(msgs[1].ToolCalls))
+	}
+}
+
+func TestStore_LargeContent(t *testing.T) {
+	s, _, _ := newTestStore(t)
+	// Store a large message to verify no truncation.
+	large := make([]byte, 100_000)
+	for i := range large {
+		large[i] = 'A' + byte(i%26)
+	}
+	content := string(large)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: content}, scope)
+	msgs := s.AllMessages(scope.SessionID())
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Content != content {
+		t.Error("large content was truncated or corrupted")
+	}
+}
+
+func TestStore_TurnIDPersisted(t *testing.T) {
+	s, _, _ := newTestStore(t)
+	s.AddMessage(domain.Message{Role: domain.RoleUser, Content: "q", TurnID: "turn-abc"}, scope)
+	msgs := s.AllMessages(scope.SessionID())
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].TurnID != "turn-abc" {
+		t.Errorf("expected TurnID %q, got %q", "turn-abc", msgs[0].TurnID)
+	}
+}
