@@ -14,6 +14,9 @@ $EDITOR .env
 # Build the binary
 make build
 
+# Run with default parameters
+make run
+
 # Run with a specific model
 make run MODEL=sonnet-4.6
 ```
