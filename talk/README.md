@@ -40,9 +40,9 @@ Once in the REPL:
 | `/help`                        | Show available commands   |
 | `/model`                       | Switch LLM model          |
 | `/memory`                      | Show session history      |
-| `/session [list|new|remove]`   | Manage sessions           |
+| `/session [list\|new\|remove]`   | Manage sessions           |
 | `/prompt`                      | Show system prompt        |
-| `/mcp [list|add|remove|refresh]` | Manage MCP servers     |
+| `/mcp [list\|add\|remove\|refresh]` | Manage MCP servers     |
 | `/q`                           | Quit                      |
 
 ---
@@ -55,8 +55,7 @@ Copy `.env.example` to `.env` and fill in the relevant keys:
 | ------------------------ | -------- | ---------------------------- | ----------------------------------------------------------------------------- |
 | `ANTHROPIC_API_KEY`      | yes*     | -                            | Anthropic API key (for `haiku-4.5`, `sonnet-4.6`)                             |
 | `OPENAI_API_KEY`         | yes*     | -                            | OpenAI API key (for `gpt-5.4`)                                                |
-| `MISTRAL_API_KEY`        | yes*     | -                            | Mistral API key (for `mistral-small`)                                         |
-| `OPENWEATHERMAP_API_KEY` | optional | -                            | OpenWeatherMap API key (for weather tool calls)                                |
+| `MISTRAL_API_KEY`        | yes*     | -                            | Mistral API key (for `mistral-small`)                                         |                 |
 | `TOOLS_MAX_CONCURRENT`   | optional | `4`                          | Maximum concurrent tool executions (`1` = sequential)                          |
 | `CONTEXT_FULL_TURNS`     | optional | `-1`                         | Context mode: `-1` full, `0` lean, `N>0` hybrid with last `N` detailed turns  |
 | `LANGFUSE_PUBLIC_KEY`    | optional | -                            | Langfuse public key                                                            |
@@ -109,10 +108,10 @@ talk/
 │   ├── helpers/                # Shared utilities
 │   ├── llm/                    # LLM providers
 │   │   ├── anthropic/          #   Anthropic client
-│   │   ├── openai/             #   OpenAI / Mistral client
+│   │   ├── openai/             #   OpenAI client
 │   │   └── router/             #   Model router
 │   ├── mcp/                    # MCP server manager
-│   ├── memory/                 # InMemory & Langfuse stores
+│   ├── memory/                 # InMemory & SQLLite stores
 │   ├── prompt/                 # File & static prompt providers
 │   └── usage/                  # Console, Langfuse, OTLP reporters
 ├── system_prompt.md            # Default system prompt
