@@ -126,11 +126,14 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 	// turnSpanID is used to correlate all events for this conversation turn in observability. It is the parent span for all API call spans in this turn.
 	turnSpanID := GenerateSpanID()
 	var totalUsage Usage
-	var allToolCalls []ToolCall // Collect all tool calls for the turn event
+	allToolCalls := make([]ToolCall, 0, 8) // pre-allocate to avoid repeated growth
 	var lastCallEndedAt time.Time
 	callCount := 0
 	// kind tracks whether the API call is the initial LLM call or a subsequent call after tool results, for observability purposes.
 	kind := CallKindInitial
+
+	// Resolve tools once for the entire turn — they don't change between iterations.
+	tools := m.toolsProvider()
 
 	for range maxToolCalls {
 		// Get the current conversation context for the API call input
@@ -140,7 +143,7 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 		// Send the conversation to the LLM and get the response with token usage.
 		// The response may contain tool calls that need to be executed.
 		callStartedAt := time.Now()
-		response, usage, err := m.client.Complete(ctx, systemPrompt, messages, m.toolsProvider())
+		response, usage, err := m.client.Complete(ctx, systemPrompt, messages, tools)
 		if err != nil {
 			return "", fmt.Errorf("model completion: %w", err)
 		}
@@ -284,14 +287,20 @@ func formatToolCallSummary(toolCalls []ToolCall) string {
 	if len(toolCalls) == 0 {
 		return ""
 	}
+	var b strings.Builder
 	if len(toolCalls) == 1 {
-		return fmt.Sprintf("Calling tool %s.", toolCalls[0].Name)
+		b.WriteString("Calling tool ")
+		b.WriteString(toolCalls[0].Name)
+		b.WriteByte('.')
+		return b.String()
 	}
-
-	names := make([]string, 0, len(toolCalls))
-	for _, tc := range toolCalls {
-		names = append(names, tc.Name)
+	b.WriteString("Calling tools ")
+	for i, tc := range toolCalls {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(tc.Name)
 	}
-
-	return fmt.Sprintf("Calling tools %s.", strings.Join(names, ", "))
+	b.WriteByte('.')
+	return b.String()
 }

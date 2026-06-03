@@ -14,38 +14,38 @@ import (
 // reloaded from DB without their ToolResults/ToolCalls) and merges
 // consecutive same-role messages to maintain valid alternation.
 func toSDKMessages(messages []domain.Message) []anthropic.MessageParam {
-	params := make([]anthropic.MessageParam, 0, len(messages))
+	// Single-pass: build and merge consecutive same-role messages in one allocation.
+	result := make([]anthropic.MessageParam, 0, len(messages))
 	for _, msg := range messages {
+		var p anthropic.MessageParam
 		switch msg.Role {
 		case domain.RoleUser:
 			if msg.Content == "" {
 				continue
 			}
-			params = append(params, anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content)))
+			p = anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content))
 		case domain.RoleAssistant:
-			p := toAssistantParam(msg)
+			p = toAssistantParam(msg)
 			if len(p.Content) == 0 {
 				continue
 			}
-			params = append(params, p)
 		case domain.RoleTool:
 			if len(msg.ToolResults) == 0 {
 				continue
 			}
-			params = append(params, toToolResultParam(msg))
+			p = toToolResultParam(msg)
+		default:
+			continue
 		}
-	}
-	// Anthropic requires strict user/assistant alternation.
-	// Merge consecutive same-role messages by appending content blocks.
-	merged := make([]anthropic.MessageParam, 0, len(params))
-	for _, p := range params {
-		if len(merged) > 0 && merged[len(merged)-1].Role == p.Role {
-			merged[len(merged)-1].Content = append(merged[len(merged)-1].Content, p.Content...)
+		// Anthropic requires strict user/assistant alternation.
+		// Merge consecutive same-role messages by appending content blocks.
+		if len(result) > 0 && result[len(result)-1].Role == p.Role {
+			result[len(result)-1].Content = append(result[len(result)-1].Content, p.Content...)
 		} else {
-			merged = append(merged, p)
+			result = append(result, p)
 		}
 	}
-	return merged
+	return result
 }
 
 func toAssistantParam(msg domain.Message) anthropic.MessageParam {

@@ -29,6 +29,13 @@ func (a *mcpToolAdapter) InputSchema() (map[string]any, error) {
 	if a.tool.InputSchema == nil {
 		return map[string]any{"type": "object", "properties": map[string]any{}}, nil
 	}
+	// InputSchema is typed as `any` in the MCP SDK. After JSON decoding from
+	// ListTools it is typically already a map[string]any — try a direct assertion
+	// to avoid a marshal/unmarshal round-trip.
+	if m, ok := a.tool.InputSchema.(map[string]any); ok {
+		return m, nil
+	}
+	// Fallback for non-map types (e.g. a typed struct passed in tests).
 	b, err := json.Marshal(a.tool.InputSchema)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling input schema: %w", err)

@@ -122,3 +122,7 @@ talk/
 ├── Makefile                    # Build & run targets
 └── go.mod
 ```
+
+
+Your Account is not present in SSC AD
+You encountered a problem with the Active Directory, or the DAS Id you typed exists but the KI support hasn't yet added your account in the Citrix users base. In this case, be sure you sent a request to the KI Tools support by creating a ticket
