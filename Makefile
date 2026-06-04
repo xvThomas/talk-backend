@@ -54,6 +54,17 @@ lint: ## Run golangci-lint for all modules
 		$(ECHO) "$(COLOR_GREEN)$(CHECK) $$mod lint passed$(COLOR_RESET)"; \
 	done
 
+fmt: ## Format code (go fmt + goimports) for all modules
+	@command -v goimports >/dev/null 2>&1 || { \
+		$(ECHO) "$(COLOR_YELLOW)Installing goimports...$(COLOR_RESET)"; \
+		go install golang.org/x/tools/cmd/goimports@latest; \
+	}
+	@for mod in $(MODULES); do \
+		$(ECHO) "$(COLOR_YELLOW)Formatting $$mod...$(COLOR_RESET)"; \
+		(cd $$mod && go fmt ./... && goimports -w .) || exit 1; \
+		$(ECHO) "$(COLOR_GREEN)$(CHECK) $$mod formatted$(COLOR_RESET)"; \
+	done
+
 build: ## Build all binaries
 	@$(MAKE) -C talk build
 	@$(MAKE) -C mcp-owm build

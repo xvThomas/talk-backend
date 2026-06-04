@@ -27,7 +27,7 @@ func NewSumTool() *SumTool {
 }
 
 func (t *SumTool) Name() string        { return "sum" }
-func (t *SumTool) Description() string  { return "Compute the sum of two integers" }
+func (t *SumTool) Description() string { return "Compute the sum of two integers" }
 
 func (t *SumTool) Call(_ context.Context, input SumToolInput) (SumToolOutput, error) {
 	return SumToolOutput{Result: input.A + input.B}, nil
