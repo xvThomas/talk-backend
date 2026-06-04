@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	_ "net/http/pprof"
 
 	"github.com/xvThomas/LLMClientWrapper/talk-libs/version"
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/config"
@@ -31,25 +34,31 @@ func newRootCmd() *cobra.Command {
 	var (
 		modelFlag      string
 		systemFileFlag string
+		pprofFlag      bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "talk-cli",
 		Short: "Interactive LLM conversation session",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return run(cmd.Context(), modelFlag, systemFileFlag)
+			return run(cmd.Context(), modelFlag, systemFileFlag, pprofFlag)
 		},
 	}
 
 	cmd.Flags().StringVar(&modelFlag, "model", "", "Model alias to use (e.g. sonnet-4.6, devstral)")
 	cmd.Flags().StringVar(&systemFileFlag, "system-file", defaultSystemPromptPath(), "Path to a Markdown system prompt file")
+	cmd.Flags().BoolVar(&pprofFlag, "pprof", false, "Enable pprof profiling server on localhost:6060")
 
 	_ = cmd.MarkFlagRequired("model")
 
 	return cmd
 }
 
-func run(ctx context.Context, modelAlias, systemFile string) error {
+func run(ctx context.Context, modelAlias, systemFile string, pprof bool) error {
+	if pprof {
+		go http.ListenAndServe("localhost:6060", nil) //nolint:errcheck,gosec // pprof dev-only server
+	}
+
 	cfg, err := config.Load(".env")
 	if err != nil {
 		return err

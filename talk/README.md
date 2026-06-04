@@ -100,6 +100,28 @@ go run ./cmd/cli --model sonnet-4.6 --system-file /path/to/prompt.md
 
 ---
 
+## Profiling
+
+The CLI includes a built-in pprof server for performance diagnostics. Enable it with `--pprof`:
+
+```bash
+go run ./cmd/cli --model sonnet-4.6 --pprof
+```
+
+This starts a profiling endpoint on `localhost:6060`. In another terminal:
+
+```bash
+# Memory allocations (opens a web UI)
+go tool pprof -http=:8081 http://localhost:6060/debug/pprof/heap
+
+# CPU profile (30-second sample)
+go tool pprof -http=:8081 http://localhost:6060/debug/pprof/profile?seconds=30
+```
+
+> Requires [Graphviz](https://graphviz.org/) for the Graph view. The Flame Graph view works without it.
+
+---
+
 ## Project structure
 
 ```
