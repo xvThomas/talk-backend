@@ -4,6 +4,7 @@
     "cSpell.words": [
         "AIAPI",
         "bbox",
+        "bdtopo",
         "Errorf",
         "Getenv",
         "godotenv",
@@ -16,8 +17,10 @@
         "malibu",
         "mcpserver",
         "mytool",
+        "numero",
         "oauthex",
         "openai",
+        "osrm",
         "sess",
         "sqlitestore",
         "testdata",
