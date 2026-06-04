@@ -49,8 +49,8 @@ func (m *Manager) ConnectAll(ctx context.Context) {
 		return
 	}
 
-	m.tools = nil
-	m.statuses = nil
+	m.tools = []domain.Tool{}
+	m.statuses = []ServerStatus{}
 
 	for _, cfg := range configs {
 		status := ServerStatus{Config: cfg}
@@ -137,7 +137,7 @@ func (m *Manager) Disconnect(id string) {
 // Refresh re-queries the tool list for all connected servers and rebuilds the
 // internal tools slice. Returns the number of tools discovered.
 func (m *Manager) Refresh(ctx context.Context) int {
-	m.tools = nil
+	m.tools = []domain.Tool{}
 	for i := range m.statuses {
 		st := &m.statuses[i]
 		st.Tools = nil

@@ -48,23 +48,24 @@ func (a *App) cmdSessionList(ctx context.Context) {
 	a.Println("\n" + emphasize("Sessions:"))
 	if len(sessions) == 0 {
 		a.Println(faint("  (no past sessions found)"))
-	} else {
-		for i, s := range sessions {
-			marker := ""
-			if s.ID == a.Scope.SessionID() {
-				marker = " " + green("← current")
-			}
-			title := s.Title
-			if title == "" {
-				title = "(untitled)"
-			}
-			a.Printf("  [%d] %s  %s  %s%s\n",
-				i+1,
-				faint(s.CreatedAt.Format("2006-01-02 15:04")),
-				faint(fmt.Sprintf("%d turns", s.TurnCount)),
-				title,
-				marker)
+		return
+	}
+
+	for i, s := range sessions {
+		marker := ""
+		if s.ID == a.Scope.SessionID() {
+			marker = " " + green("← current")
 		}
+		title := s.Title
+		if title == "" {
+			title = "(untitled)"
+		}
+		a.Printf("  [%d] %s  %s  %s%s\n",
+			i+1,
+			faint(s.CreatedAt.Format("2006-01-02 15:04")),
+			faint(fmt.Sprintf("%d turns", s.TurnCount)),
+			title,
+			marker)
 	}
 
 	choice, err := a.LR.ReadLine(fmt.Sprintf("Choose [1-%d] or 'new' (Enter to cancel): ", len(sessions)))

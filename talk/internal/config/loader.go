@@ -80,7 +80,7 @@ func (c *Config) RequireMistralKey() (string, error) {
 func (c *Config) RequirePoolsideKey() (string, error) {
 	return requireKey(c.PoolsideAPIKey, "POOLSIDE_API_KEY")
 }
-	*/
+*/
 
 // RequireOpenWeatherMapKey returns the OpenWeatherMap API key or an error if missing.
 func (c *Config) RequireOpenWeatherMapKey() (string, error) {
@@ -101,7 +101,7 @@ func GetKeyValue(name string) string {
 
 // GetRequiredKeyValue is a helper function to get a required environment variable value or return error.
 func GetRequiredKeyValue(name string) (string, error) {
-	value := os.Getenv(name)	
+	value := os.Getenv(name)
 	if value == "" {
 		return "", fmt.Errorf("missing required environment variable %q", name)
 	}
@@ -124,7 +124,7 @@ func parseMcpAllowedOrigins(value string) []string {
 	}
 	return origins
 }
-	*/
+*/
 
 // parseToolsMaxConcurrent parses TOOLS_MAX_CONCURRENT with fallback to 4.
 func parseToolsMaxConcurrent(value string) int {

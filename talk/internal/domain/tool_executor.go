@@ -10,7 +10,7 @@ import (
 // ToolExecutor handles the execution of tool calls and returns messages
 // that can be added to the conversation store.
 type ToolExecutor struct {
-	toolsProvider  func() []Tool
+	toolsProvider func() []Tool
 	maxConcurrent int
 }
 

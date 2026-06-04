@@ -45,7 +45,7 @@ type Model string
 type ModelDescriptor struct {
 	OLTPProvider OLTPProvider
 	APIClient    APIClient
-	APIKeyName   string  // Name of the environment variable for the API key
+	APIKeyName   string // Name of the environment variable for the API key
 	URL          string // Optional base URL for API-compatible providers
 	APIModelID   string
 }

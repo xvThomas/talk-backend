@@ -183,8 +183,8 @@ func isTrustedProxy(ipStr string, trustedProxies []net.IPNet) bool {
 	if ip4 := ip.To4(); ip4 != nil {
 		ip = ip4
 	}
-	for i := range trustedProxies {
-		if trustedProxies[i].Contains(ip) {
+	for _, ipNet := range trustedProxies {
+		if ipNet.Contains(ip) {
 			return true
 		}
 	}

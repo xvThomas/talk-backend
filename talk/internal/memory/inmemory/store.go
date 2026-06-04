@@ -119,7 +119,10 @@ func (b *Browser) LoadHistoryTurnsFromSession(_ context.Context, sessionID strin
 			if sd.messages[j].Role == domain.RoleUser {
 				break
 			}
-			if sd.messages[j].Role == domain.RoleAssistant && sd.messages[j].Content != "" && len(sd.messages[j].ToolCalls) == 0 {
+			isCompletedReply := sd.messages[j].Role == domain.RoleAssistant &&
+				sd.messages[j].Content != "" &&
+				len(sd.messages[j].ToolCalls) == 0
+			if isCompletedReply {
 				turn.Answer = sd.messages[j].Content
 				i = j
 			}
