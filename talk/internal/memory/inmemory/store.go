@@ -40,41 +40,43 @@ var _ domain.SessionBrowser = (*Browser)(nil)
 // AddMessage appends a message to the given session.
 // The session is materialized only when the first user message is added.
 // The title is set from the first user message content.
-func (r *MessageRepository) AddMessage(msg domain.Message, scope domain.SessionScope) {
+func (r *MessageRepository) AddMessage(_ context.Context, msg domain.Message, scope domain.SessionScope) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	sd, exists := r.sessions[scope.SessionID()]
 	if !exists {
 		if msg.Role != domain.RoleUser {
-			return
+			return nil
 		}
 		sd = &sessionData{title: msg.Content, createdAt: time.Now()}
 		r.sessions[scope.SessionID()] = sd
 	}
 	sd.messages = append(sd.messages, msg)
 	sd.timestamps = append(sd.timestamps, time.Now())
+	return nil
 }
 
 // AllMessages returns a copy of all stored messages for the given session.
-func (r *MessageRepository) AllMessages(sessionID string) []domain.Message {
+func (r *MessageRepository) AllMessages(_ context.Context, sessionID string) ([]domain.Message, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	sd, exists := r.sessions[sessionID]
 	if !exists {
-		return nil
+		return nil, nil
 	}
 	result := make([]domain.Message, len(sd.messages))
 	copy(result, sd.messages)
-	return result
+	return result, nil
 }
 
 // ClearMessages removes all messages from the given session.
-func (r *MessageRepository) ClearMessages(sessionID string) {
+func (r *MessageRepository) ClearMessages(_ context.Context, sessionID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if sd, exists := r.sessions[sessionID]; exists {
 		sd.messages = nil
 	}
+	return nil
 }
 
 // ListSessions returns all known sessions.

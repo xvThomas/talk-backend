@@ -60,11 +60,17 @@ func newFakeStore() *fakeStore {
 	return &fakeStore{messages: make(map[string][]domain.Message)}
 }
 
-func (s *fakeStore) AddMessage(msg domain.Message, scope domain.SessionScope) {
+func (s *fakeStore) AddMessage(_ context.Context, msg domain.Message, scope domain.SessionScope) error {
 	s.messages[scope.SessionID()] = append(s.messages[scope.SessionID()], msg)
+	return nil
 }
-func (s *fakeStore) AllMessages(sessionID string) []domain.Message { return s.messages[sessionID] }
-func (s *fakeStore) ClearMessages(sessionID string)                { delete(s.messages, sessionID) }
+func (s *fakeStore) AllMessages(_ context.Context, sessionID string) ([]domain.Message, error) {
+	return s.messages[sessionID], nil
+}
+func (s *fakeStore) ClearMessages(_ context.Context, sessionID string) error {
+	delete(s.messages, sessionID)
+	return nil
+}
 
 // fakeSessionBrowser implements domain.SessionBrowser.
 type fakeSessionBrowser struct {

@@ -47,13 +47,13 @@ type stubStore struct {
 	history  map[string][]HistoryTurn
 }
 
-func (s *stubStore) AddMessage(msg Message, scope SessionScope) {
+func (s *stubStore) AddMessage(_ context.Context, msg Message, scope SessionScope) error {
 	if s.messages == nil {
 		s.messages = make(map[string][]Message)
 	}
 	s.messages[scope.SessionID()] = append(s.messages[scope.SessionID()], msg)
 	if msg.TurnID == "" {
-		return
+		return nil
 	}
 	if s.history == nil {
 		s.history = make(map[string][]HistoryTurn)
@@ -71,17 +71,19 @@ func (s *stubStore) AddMessage(msg Message, scope SessionScope) {
 		}
 	}
 	s.history[scope.SessionID()] = turns
+	return nil
 }
-func (s *stubStore) AllMessages(sessionID string) []Message {
+func (s *stubStore) AllMessages(_ context.Context, sessionID string) ([]Message, error) {
 	if s.messages == nil {
-		return nil
+		return nil, nil
 	}
-	return s.messages[sessionID]
+	return s.messages[sessionID], nil
 }
-func (s *stubStore) ClearMessages(sessionID string) {
+func (s *stubStore) ClearMessages(_ context.Context, sessionID string) error {
 	if s.messages != nil {
 		delete(s.messages, sessionID)
 	}
+	return nil
 }
 func (s *stubStore) ListSessions(_ context.Context, _ string) ([]SessionSummary, error) {
 	return nil, nil

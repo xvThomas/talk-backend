@@ -22,11 +22,13 @@
         "openai",
         "osrm",
         "sess",
+        "sqlite",
         "sqlitestore",
         "testdata",
         "tmpl",
         "unmarshalling",
-        "unmaterialized"
+        "unmaterialized",
+        "upserting"
     ],
     "chat.tools.terminal.autoApprove": {
         "go": true

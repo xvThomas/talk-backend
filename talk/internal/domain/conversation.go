@@ -120,7 +120,9 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 	turnID := GenerateTraceID()
 	// Store the user message in the conversation history before processing to ensure it's included in the context
 	// for the first API call and in observability.
-	m.store.AddMessage(Message{Role: RoleUser, Content: userInput, TurnID: turnID}, m.scope)
+	if err := m.store.AddMessage(ctx, Message{Role: RoleUser, Content: userInput, TurnID: turnID}, m.scope); err != nil {
+		return "", fmt.Errorf("storing user message: %w", err)
+	}
 
 	turnStartedAt := time.Now()
 	// turnSpanID is used to correlate all events for this conversation turn in observability. It is the parent span for all API call spans in this turn.
@@ -178,7 +180,9 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 		if strings.TrimSpace(storedResponse.Content) == "" && len(storedResponse.ToolCalls) > 0 {
 			storedResponse.Content = formatToolCallSummary(storedResponse.ToolCalls)
 		}
-		m.store.AddMessage(storedResponse, m.scope)
+		if err := m.store.AddMessage(ctx, storedResponse, m.scope); err != nil {
+			return "", fmt.Errorf("storing assistant response: %w", err)
+		}
 
 		// If the model responded with content without tool calls, or if we've reached the maximum
 		// tool call iterations, end the conversation turn.
@@ -207,7 +211,9 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 			return "", err
 		}
 		for _, msg := range toolMsgs {
-			m.store.AddMessage(msg, m.scope)
+			if err := m.store.AddMessage(ctx, msg, m.scope); err != nil {
+				return "", fmt.Errorf("storing tool result: %w", err)
+			}
 		}
 	}
 

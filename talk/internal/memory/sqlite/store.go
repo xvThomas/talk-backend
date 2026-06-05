@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -56,7 +57,7 @@ CREATE INDEX IF NOT EXISTS idx_history_turns_session_id ON history_turns(session
 // db is the shared database handle for both MessageRepository and Browser.
 type db struct {
 	conn *sql.DB
-	mu   sync.Mutex
+	mu   sync.RWMutex
 }
 
 // MessageRepository implements domain.MessageStore backed by SQLite.
@@ -79,6 +80,12 @@ func New(dbPath string) (*MessageRepository, *Browser, error) {
 		_ = conn.Close()
 		return nil, nil, fmt.Errorf("setting WAL mode: %w", err)
 	}
+
+	// SQLite supports only one writer at a time.
+	conn.SetMaxOpenConns(1)
+	conn.SetMaxIdleConns(1)
+	conn.SetConnMaxLifetime(0)
+
 	if _, err := conn.Exec(schema); err != nil {
 		_ = conn.Close()
 		return nil, nil, fmt.Errorf("creating schema: %w", err)
@@ -96,23 +103,26 @@ func (d *db) Close() error { return d.conn.Close() }
 
 // AddMessage appends a message to the given session.
 // The session is materialized in the database only on the first user message.
-func (r *MessageRepository) AddMessage(msg domain.Message, scope domain.SessionScope) {
+func (r *MessageRepository) AddMessage(ctx context.Context, msg domain.Message, scope domain.SessionScope) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	// Check if session is materialized.
-	materialized := r.isSessionMaterialized(scope.SessionID())
+	materialized, err := r.isSessionMaterialized(ctx, scope.SessionID())
+	if err != nil {
+		return err
+	}
 	if !materialized {
 		if msg.Role != domain.RoleUser {
-			return
+			return nil
 		}
 		// Materialize session with title = first user message.
 		title := msg.Content
-		if _, err := r.conn.Exec(
+		if _, err := r.conn.ExecContext(ctx,
 			"INSERT INTO sessions (id, user_id, title, created_at) VALUES (?, ?, ?, ?)",
 			scope.SessionID(), scope.UserID(), title, time.Now().UTC().Format(timeFormat),
 		); err != nil {
-			return
+			return fmt.Errorf("materializing session: %w", err)
 		}
 	}
 
@@ -144,28 +154,27 @@ func (r *MessageRepository) AddMessage(msg domain.Message, scope domain.SessionS
 		}
 	}
 
-	if _, err := r.conn.Exec(
+	if _, err := r.conn.ExecContext(ctx,
 		"INSERT INTO messages (session_id, role, content, tool_name, tool_input, tool_output, tool_call_id, turn_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		scope.SessionID(), string(msg.Role), content, toolName, toolInput, toolOutput, toolCallID, msg.TurnID, now,
 	); err != nil {
-		return
+		return fmt.Errorf("inserting message: %w", err)
 	}
 
-	r.upsertHistoryTurn(scope.SessionID(), msg, now)
+	return r.upsertHistoryTurn(ctx, scope.SessionID(), msg, now)
 }
 
-func (r *MessageRepository) isSessionMaterialized(sessionID string) bool {
+func (r *MessageRepository) isSessionMaterialized(ctx context.Context, sessionID string) (bool, error) {
 	var count int
-	err := r.conn.QueryRow("SELECT COUNT(*) FROM sessions WHERE id = ?", sessionID).Scan(&count)
-	if err != nil {
-		return false
+	if err := r.conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE id = ?", sessionID).Scan(&count); err != nil {
+		return false, fmt.Errorf("checking session existence: %w", err)
 	}
-	return count > 0
+	return count > 0, nil
 }
 
-func (r *MessageRepository) upsertHistoryTurn(sessionID string, msg domain.Message, now string) {
+func (r *MessageRepository) upsertHistoryTurn(ctx context.Context, sessionID string, msg domain.Message, now string) error {
 	if msg.TurnID == "" {
-		return
+		return nil
 	}
 
 	question := ""
@@ -182,10 +191,10 @@ func (r *MessageRepository) upsertHistoryTurn(sessionID string, msg domain.Messa
 		answerAt = now
 	}
 	if question == "" && answer == "" {
-		return
+		return nil
 	}
 
-	_, _ = r.conn.Exec(
+	if _, err := r.conn.ExecContext(ctx,
 		`INSERT INTO history_turns (session_id, turn_id, question, answer, question_at, answer_at)
 		 VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(session_id, turn_id) DO UPDATE SET
@@ -199,20 +208,23 @@ func (r *MessageRepository) upsertHistoryTurn(sessionID string, msg domain.Messa
 		answer,
 		questionAt,
 		answerAt,
-	)
+	); err != nil {
+		return fmt.Errorf("upserting history turn: %w", err)
+	}
+	return nil
 }
 
 // AllMessages returns all messages for the given session.
-func (r *MessageRepository) AllMessages(sessionID string) []domain.Message {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (r *MessageRepository) AllMessages(ctx context.Context, sessionID string) ([]domain.Message, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
-	rows, err := r.conn.Query(
+	rows, err := r.conn.QueryContext(ctx,
 		"SELECT role, content, tool_name, tool_input, tool_output, tool_call_id, turn_id FROM messages WHERE session_id = ? ORDER BY id",
 		sessionID,
 	)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("querying messages: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -220,7 +232,7 @@ func (r *MessageRepository) AllMessages(sessionID string) []domain.Message {
 	for rows.Next() {
 		var role, content, toolName, toolInput, toolOutput, toolCallID, turnID string
 		if err := rows.Scan(&role, &content, &toolName, &toolInput, &toolOutput, &toolCallID, &turnID); err != nil {
-			return nil
+			return nil, fmt.Errorf("scanning message: %w", err)
 		}
 		msg := domain.Message{
 			Role:    domain.Role(role),
@@ -256,26 +268,31 @@ func (r *MessageRepository) AllMessages(sessionID string) []domain.Message {
 
 		messages = append(messages, msg)
 	}
-	if len(messages) == 0 {
-		return nil
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating messages: %w", err)
 	}
-	return messages
+	return messages, nil
 }
 
 // ClearMessages removes all messages from the given session (in DB).
-func (r *MessageRepository) ClearMessages(sessionID string) {
+func (r *MessageRepository) ClearMessages(ctx context.Context, sessionID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_, _ = r.conn.Exec("DELETE FROM messages WHERE session_id = ?", sessionID)
-	_, _ = r.conn.Exec("DELETE FROM history_turns WHERE session_id = ?", sessionID)
+	if _, err := r.conn.ExecContext(ctx, "DELETE FROM messages WHERE session_id = ?", sessionID); err != nil {
+		return fmt.Errorf("clearing messages: %w", err)
+	}
+	if _, err := r.conn.ExecContext(ctx, "DELETE FROM history_turns WHERE session_id = ?", sessionID); err != nil {
+		return fmt.Errorf("clearing history turns: %w", err)
+	}
+	return nil
 }
 
 // ListSessions returns all sessions for the given user, ordered by creation date (newest first).
-func (b *Browser) ListSessions(_ context.Context, userID string) ([]domain.SessionSummary, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+func (b *Browser) ListSessions(ctx context.Context, userID string) ([]domain.SessionSummary, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-	rows, err := b.conn.Query(`
+	rows, err := b.conn.QueryContext(ctx, `
 		SELECT s.id, s.title, s.created_at,
 		       COUNT(CASE WHEN m.role = 'user' THEN 1 END) AS turn_count
 		FROM sessions s
@@ -289,25 +306,29 @@ func (b *Browser) ListSessions(_ context.Context, userID string) ([]domain.Sessi
 	}
 	defer func() { _ = rows.Close() }()
 
-	var sessions []domain.SessionSummary
+	sessions := []domain.SessionSummary{}
 	for rows.Next() {
 		var ss domain.SessionSummary
 		var createdAt string
 		if err := rows.Scan(&ss.ID, &ss.Title, &createdAt, &ss.TurnCount); err != nil {
 			return nil, fmt.Errorf("scanning session: %w", err)
 		}
-		ss.CreatedAt, _ = time.Parse(timeFormat, createdAt)
+		parsed, err := time.Parse(timeFormat, createdAt)
+		if err != nil {
+			slog.Warn("parsing session created_at", "session_id", ss.ID, "value", createdAt, "error", err)
+		}
+		ss.CreatedAt = parsed
 		sessions = append(sessions, ss)
 	}
 	return sessions, rows.Err()
 }
 
 // LoadHistoryTurnsFromSession returns the conversation history for the given session as question/answer pairs.
-func (b *Browser) LoadHistoryTurnsFromSession(_ context.Context, sessionID string) ([]domain.HistoryTurn, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+func (b *Browser) LoadHistoryTurnsFromSession(ctx context.Context, sessionID string) ([]domain.HistoryTurn, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-	rows, err := b.conn.Query(`
+	rows, err := b.conn.QueryContext(ctx, `
 		SELECT turn_id, question, answer, question_at, answer_at
 		FROM history_turns
 		WHERE session_id = ?
@@ -327,94 +348,44 @@ func (b *Browser) LoadHistoryTurnsFromSession(_ context.Context, sessionID strin
 			return nil, fmt.Errorf("scanning history turn: %w", err)
 		}
 		if questionAt.Valid {
-			turn.At, _ = time.Parse(timeFormat, questionAt.String)
+			parsed, err := time.Parse(timeFormat, questionAt.String)
+			if err != nil {
+				slog.Warn("parsing question_at", "session_id", sessionID, "turn_id", turn.TurnID, "error", err)
+			}
+			turn.At = parsed
 		} else if answerAt.Valid {
-			turn.At, _ = time.Parse(timeFormat, answerAt.String)
+			parsed, err := time.Parse(timeFormat, answerAt.String)
+			if err != nil {
+				slog.Warn("parsing answer_at", "session_id", sessionID, "turn_id", turn.TurnID, "error", err)
+			}
+			turn.At = parsed
 		}
 		turns = append(turns, turn)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if len(turns) > 0 {
-		return turns, nil
-	}
-
-	// Backward compatibility path for legacy rows/tests where history_turns is empty.
-	legacyRows, err := b.conn.Query(
-		"SELECT role, content, turn_id, created_at, tool_input FROM messages WHERE session_id = ? ORDER BY id",
-		sessionID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("loading legacy session messages: %w", err)
-	}
-	defer func() { _ = legacyRows.Close() }()
-
-	type msgRow struct {
-		role      string
-		content   string
-		turnID    string
-		createdAt time.Time
-		toolInput string
-	}
-	var msgs []msgRow
-	for legacyRows.Next() {
-		var m msgRow
-		var createdAt string
-		if err := legacyRows.Scan(&m.role, &m.content, &m.turnID, &createdAt, &m.toolInput); err != nil {
-			return nil, fmt.Errorf("scanning legacy message: %w", err)
-		}
-		m.createdAt, _ = time.Parse(timeFormat, createdAt)
-		msgs = append(msgs, m)
-	}
-	if err := legacyRows.Err(); err != nil {
-		return nil, err
-	}
-
-	for i := 0; i < len(msgs); i++ {
-		if msgs[i].role != string(domain.RoleUser) {
-			continue
-		}
-		turn := domain.HistoryTurn{
-			Question: msgs[i].content,
-			At:       msgs[i].createdAt,
-			TurnID:   msgs[i].turnID,
-		}
-		for j := i + 1; j < len(msgs); j++ {
-			if msgs[j].role == string(domain.RoleUser) {
-				break
-			}
-			isCompletedReply := msgs[j].role == string(domain.RoleAssistant) &&
-				msgs[j].content != "" &&
-				msgs[j].toolInput == ""
-			if isCompletedReply {
-				turn.Answer = msgs[j].content
-				i = j
-			}
-		}
-		turns = append(turns, turn)
-	}
 	return turns, nil
 }
 
 // DeleteSession removes a session and all its messages from the database.
-func (b *Browser) DeleteSession(_ context.Context, sessionID string) error {
+func (b *Browser) DeleteSession(ctx context.Context, sessionID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	tx, err := b.conn.Begin()
+	tx, err := b.conn.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	if _, err := tx.Exec("DELETE FROM messages WHERE session_id = ?", sessionID); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM messages WHERE session_id = ?", sessionID); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("deleting messages: %w", err)
 	}
-	if _, err := tx.Exec("DELETE FROM history_turns WHERE session_id = ?", sessionID); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM history_turns WHERE session_id = ?", sessionID); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("deleting history turns: %w", err)
 	}
-	if _, err := tx.Exec("DELETE FROM sessions WHERE id = ?", sessionID); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE id = ?", sessionID); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("deleting session: %w", err)
 	}
