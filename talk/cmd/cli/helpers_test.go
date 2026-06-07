@@ -155,7 +155,7 @@ type fakeRouter struct {
 	err    error
 }
 
-func (r *fakeRouter) Get(_ domain.Model) (domain.LlmClient, error) {
+func (r *fakeRouter) Get(_ string) (domain.LlmClient, error) {
 	return r.client, r.err
 }
 

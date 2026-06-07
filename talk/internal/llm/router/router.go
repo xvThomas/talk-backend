@@ -20,7 +20,7 @@ func NewLLMRouter(cfg *config.Config) *Router {
 }
 
 // Get returns an LlmClient for the given model alias, building it from configuration.
-func (r *Router) Get(model domain.Model) (domain.LlmClient, error) {
+func (r *Router) Get(model string) (domain.LlmClient, error) {
 	d, err := domain.Lookup(model)
 	if err != nil {
 		return nil, err

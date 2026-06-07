@@ -65,12 +65,12 @@ func run(ctx context.Context, modelAlias, systemFile string, pprof bool) error {
 	}
 
 	r := router.NewLLMRouter(cfg)
-	client, err := r.Get(domain.Model(modelAlias))
+	client, err := r.Get(modelAlias)
 	if err != nil {
 		return err
 	}
 
-	modelDescriptor, err := domain.Lookup(domain.Model(modelAlias))
+	modelDescriptor, err := domain.Lookup(modelAlias)
 	if err != nil {
 		return err
 	}

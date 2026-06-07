@@ -7,7 +7,7 @@ import (
 
 // ModelSwitcher builds LLM clients by model alias.
 type ModelSwitcher interface {
-	Get(model domain.Model) (domain.LlmClient, error)
+	Get(model string) (domain.LlmClient, error)
 }
 
 // App holds the shared session state for the CLI application.
