@@ -67,8 +67,6 @@ type CallKind string
 const (
 	// CallKindInitial is the first call of a turn (user → assistant).
 	CallKindInitial CallKind = "initial"
-	// CallKindToolCall is emitted before tool execution to notify about the tool invocation.
-	CallKindToolCall CallKind = "tool_call"
 	// CallKindToolResult is a subsequent call after tool execution.
 	CallKindToolResult CallKind = "tool_result"
 )
@@ -109,6 +107,19 @@ type TurnEvent struct {
 	ToolCalls    []ToolCall // All tool calls made during this turn
 }
 
+// ToolCallEvent is emitted when a tool call is about to be executed.
+type ToolCallEvent struct {
+	TurnID    string
+	ToolCall  ToolCall
+	StartedAt time.Time
+}
+
+// ToolCallEventHandler receives tool call execution events.
+// This interface is optional: only interested handlers need to implement it.
+type ToolCallEventHandler interface {
+	HandleToolCallEvent(ctx context.Context, event ToolCallEvent) error
+}
+
 // MessageEventHandler receives message and turn events.
 type MessageEventHandler interface {
 	HandleMessageEvent(ctx context.Context, event MessageEvent) error
@@ -137,6 +148,18 @@ func (h *MessageEventHandlers) HandleMessageEvent(ctx context.Context, event Mes
 func (h *MessageEventHandlers) HandleTurnEvent(ctx context.Context, event TurnEvent) error {
 	return h.runPhases(func(handler MessageEventHandler) error {
 		return handler.HandleTurnEvent(ctx, event)
+	})
+}
+
+// HandleToolCallEvent dispatches one tool call event through all phases.
+// Only handlers implementing ToolCallEventHandler are called.
+func (h *MessageEventHandlers) HandleToolCallEvent(ctx context.Context, event ToolCallEvent) error {
+	return h.runPhases(func(handler MessageEventHandler) error {
+		toolHandler, ok := handler.(ToolCallEventHandler)
+		if !ok {
+			return nil
+		}
+		return toolHandler.HandleToolCallEvent(ctx, event)
 	})
 }
 

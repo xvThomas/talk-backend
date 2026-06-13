@@ -15,6 +15,7 @@ import (
 type ConsoleUsageReporter struct{}
 
 var _ domain.MessageEventHandler = (*ConsoleUsageReporter)(nil) // compile-time interface check
+var _ domain.ToolCallEventHandler = (*ConsoleUsageReporter)(nil)
 
 // HandleMessageEvent is called for every message event and prints usage for assistant LLM calls
 // and tool invocation details for tool calls.
@@ -23,17 +24,6 @@ var _ domain.MessageEventHandler = (*ConsoleUsageReporter)(nil) // compile-time 
 // - e: The MessageEvent containing details about the call and its token usage.
 func (ConsoleUsageReporter) HandleMessageEvent(_ context.Context, e domain.MessageEvent) error {
 	switch e.Kind {
-	case domain.CallKindToolCall:
-		if len(e.Message.ToolCalls) == 0 {
-			return nil
-		}
-		tc := e.Message.ToolCalls[0]
-		inputJSON, _ := json.Marshal(tc.Input)
-		fmt.Printf(
-			faint("  ↳   [tool call] tool=%s args=%s\n"),
-			tc.Name, string(inputJSON),
-		)
-
 	case domain.CallKindInitial, domain.CallKindToolResult:
 		if e.Message.Role != domain.RoleAssistant {
 			return nil
@@ -45,6 +35,17 @@ func (ConsoleUsageReporter) HandleMessageEvent(_ context.Context, e domain.Messa
 			e.Usage.CacheReadTokens, e.Usage.CacheWriteTokens,
 		)
 	}
+
+	return nil
+}
+
+// HandleToolCallEvent is called right before tool execution starts.
+func (ConsoleUsageReporter) HandleToolCallEvent(_ context.Context, e domain.ToolCallEvent) error {
+	inputJSON, _ := json.Marshal(e.ToolCall.Input)
+	fmt.Printf(
+		faint("  ↳   [tool call] tool=%s args=%s\n"),
+		e.ToolCall.Name, string(inputJSON),
+	)
 
 	return nil
 }

@@ -12,16 +12,16 @@ const maxToolCalls = 5
 
 // ConversationManager orchestrates a multi-turn conversation with optional tool calls.
 type ConversationManager struct {
-	scope          SessionScope
-	client         LlmClient
+	sessionScope   SessionScope
+	llmClient      LlmClient
 	modelID        string
-	provider       OLTPProvider
-	store          MessageStore
+	oltpProvider   OLTPProvider
+	messageStore   MessageStore
 	promptProvider PromptProvider
 	toolsProvider  func() []Tool
-	handlers       MessageEventHandler
+	messageHandler MessageEventHandler
 	contextBuilder *ContextBuilder
-	executor       *ToolExecutor
+	toolExecutor   *ToolExecutor
 }
 
 // ConversationManagerConfig groups all parameters for creating a ConversationManager.
@@ -41,34 +41,39 @@ type ConversationManagerConfig struct {
 
 // NewConversationManager creates a ConversationManager.
 func NewConversationManager(cfg ConversationManagerConfig) *ConversationManager {
-	handlers := cfg.EventHandlers
-	if handlers == nil {
-		handlers = NoOpMessageEventHandler{}
+	messageHandler := cfg.EventHandlers
+	if messageHandler == nil {
+		messageHandler = NoOpMessageEventHandler{}
+	}
+
+	var toolHandler ToolCallEventHandler
+	if h, ok := messageHandler.(ToolCallEventHandler); ok {
+		toolHandler = h
 	}
 
 	return &ConversationManager{
-		scope:          cfg.Scope,
-		client:         cfg.Client,
+		sessionScope:   cfg.Scope,
+		llmClient:      cfg.Client,
 		modelID:        cfg.ModelID,
-		provider:       cfg.Provider,
-		store:          cfg.Store,
+		oltpProvider:   cfg.Provider,
+		messageStore:   cfg.Store,
 		promptProvider: cfg.PromptProvider,
 		toolsProvider:  cfg.Tools,
-		handlers:       handlers,
+		messageHandler: messageHandler,
 		contextBuilder: NewContextBuilder(cfg.Store, cfg.SessionBrowser, cfg.Scope.SessionID(), cfg.ContextFullTurns),
-		executor:       NewToolExecutor(cfg.Tools, cfg.MaxConcurrentTools),
+		toolExecutor:   NewToolExecutor(cfg.Tools, cfg.MaxConcurrentTools, toolHandler),
 	}
 }
 
 // SetScope updates the active session scope for the conversation manager.
 func (m *ConversationManager) SetScope(scope SessionScope) {
-	m.scope = scope
+	m.sessionScope = scope
 	m.contextBuilder.sessionID = scope.SessionID()
 }
 
 // SetClient replaces the active LLM client and model without resetting the conversation history.
 func (m *ConversationManager) SetClient(client LlmClient, modelID string) {
-	m.client = client
+	m.llmClient = client
 	m.modelID = modelID
 }
 
@@ -85,12 +90,12 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 	// turnSpanID is used to correlate all events for this conversation turn in observability. It is the parent span for all API call spans in this turn.
 	turnSpanID := GenerateSpanID()
 	turnStartedAt := time.Now()
-	model := Model{Name: m.modelID, OLTPProvider: m.provider}
+	model := Model{Name: m.modelID, OLTPProvider: m.oltpProvider}
 	// Store the user message in the conversation history before processing to ensure it's included in the context
 	// for the first API call and in observability.
-	if err := m.handlers.HandleMessageEvent(ctx, MessageEvent{
+	if err := m.messageHandler.HandleMessageEvent(ctx, MessageEvent{
 		Message:      Message{Role: RoleUser, Content: userInput, TurnID: turnID},
-		SessionScope: m.scope,
+		SessionScope: m.sessionScope,
 		Model:        model,
 		TurnSpanID:   turnSpanID,
 		Kind:         CallKindInitial,
@@ -116,7 +121,7 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 		// Send the conversation to the LLM and get the response with token usage.
 		// The response may contain tool calls that need to be executed.
 		callStartedAt := time.Now()
-		response, usage, err := m.client.Complete(ctx, systemPrompt, messages, tools)
+		response, usage, err := m.llmClient.Complete(ctx, systemPrompt, messages, tools)
 		if err != nil {
 			return "", fmt.Errorf("model completion: %w", err)
 		}
@@ -133,9 +138,9 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 		if strings.TrimSpace(storedResponse.Content) == "" && len(storedResponse.ToolCalls) > 0 {
 			storedResponse.Content = formatToolCallSummary(storedResponse.ToolCalls)
 		}
-		if err := m.handlers.HandleMessageEvent(ctx, MessageEvent{
+		if err := m.messageHandler.HandleMessageEvent(ctx, MessageEvent{
 			Message:      storedResponse,
-			SessionScope: m.scope,
+			SessionScope: m.sessionScope,
 			Model:        model,
 			TurnSpanID:   turnSpanID,
 			Kind:         kind,
@@ -157,12 +162,12 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 		// If the model responded with content without tool calls, or if we've reached the maximum
 		// tool call iterations, end the conversation turn.
 		if len(response.ToolCalls) == 0 {
-			if err := m.handlers.HandleTurnEvent(ctx, TurnEvent{
+			if err := m.messageHandler.HandleTurnEvent(ctx, TurnEvent{
 				TurnID:       turnID,
 				TurnSpanID:   turnSpanID,
 				StartedAt:    turnStartedAt,
 				EndedAt:      time.Now(),
-				SessionScope: m.scope,
+				SessionScope: m.sessionScope,
 				Model:        model,
 				TotalUsage:   totalUsage,
 				CallCount:    callCount,
@@ -175,39 +180,21 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 			return response.Content, nil
 		}
 
-		// Emit tool call events before execution for observability.
-		for _, tc := range response.ToolCalls {
-			if err := m.handlers.HandleMessageEvent(ctx, MessageEvent{
-				Message: Message{
-					Role:      RoleTool,
-					ToolCalls: []ToolCall{tc},
-					TurnID:    turnID,
-				},
-				SessionScope: m.scope,
-				Model:        model,
-				TurnSpanID:   turnSpanID,
-				Kind:         CallKindToolCall,
-				StartedAt:    time.Now(),
-			}); err != nil {
-				return "", fmt.Errorf("handling tool call event: %w", err)
-			}
-		}
-
 		// If the model responded with tool calls, execute them and feed the results back
 		// to the model in the next iteration.
-		toolExecutions, err := m.executor.Execute(ctx, turnID, response.ToolCalls)
+		toolExecutions, err := m.toolExecutor.Execute(ctx, turnID, response.ToolCalls)
 		if err != nil {
 			return "", err
 		}
-		for _, exec := range toolExecutions {
-			if err := m.handlers.HandleMessageEvent(ctx, MessageEvent{
-				Message:      exec.Message,
-				SessionScope: m.scope,
+		for _, toolExecution := range toolExecutions {
+			if err := m.messageHandler.HandleMessageEvent(ctx, MessageEvent{
+				Message:      toolExecution.Message,
+				SessionScope: m.sessionScope,
 				Model:        model,
 				TurnSpanID:   turnSpanID,
 				Kind:         CallKindToolResult,
-				StartedAt:    exec.StartedAt,
-				EndedAt:      exec.EndedAt,
+				StartedAt:    toolExecution.StartedAt,
+				EndedAt:      toolExecution.EndedAt,
 			}); err != nil {
 				return "", fmt.Errorf("handling tool result event: %w", err)
 			}

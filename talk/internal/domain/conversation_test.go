@@ -55,11 +55,6 @@ type stubStore struct {
 }
 
 func (s *stubStore) HandleMessageEvent(_ context.Context, event MessageEvent) error {
-	// Skip tool call events; only persist actual messages.
-	if event.Kind == CallKindToolCall {
-		return nil
-	}
-
 	msg := event.Message
 	scope := event.SessionScope
 

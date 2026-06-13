@@ -53,8 +53,17 @@ Follow idiomatic Go practices and community standards when writing Go code. Thes
 ### Variables and Functions
 
 - Use mixedCaps or MixedCaps (camelCase) rather than underscores
+- Prefer variable names that closely mirror their concrete type name in lowerCamelCase
+  - Example: `ToolExecutor` -> `toolExecutor`, `ConversationManager` -> `conversationManager`
+  - For pointer variables, keep the same naming convention (do not add prefixes like `p`)
+  - Avoid replacing a clear type-derived name with generic synonyms like `svc`, `mgr`, or `exec` when the type is known
+- Apply the same rule to local variables and loop variables when their role/type is clear
+  - Prefer `toolExecution` over `exec`, `messageEventHandler` over `handler` when ambiguity exists
+  - Keep short names only for very small scopes where meaning is still obvious
+- Keep receiver and field names consistent with their type-derived naming when it improves readability
 - Keep names short but descriptive
 - Use single-letter variables only for very short scopes (like loop indices)
+- Keep standard Go idiomatic exceptions: `ctx`, `err`, `i`, `j`, `t`, `tt`, `wg`
 - Exported names start with a capital letter
 - Unexported names start with a lowercase letter
 - Avoid stuttering (e.g., avoid `http.HTTPServer`, prefer `http.Server`)

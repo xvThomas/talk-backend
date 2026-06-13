@@ -5,16 +5,16 @@ import "context"
 // ContextBuilder builds the message context for an LLM call by reconciling
 // in-memory messages with historical turns loaded from a SessionBrowser.
 type ContextBuilder struct {
-	store          MessageStore
+	messageStore   MessageStore
 	sessionBrowser SessionBrowser
 	sessionID      string
 	contextFull    int // -1 full, 0 lean, N hybrid
 }
 
 // NewContextBuilder creates a ContextBuilder.
-func NewContextBuilder(store MessageStore, sessionBrowser SessionBrowser, sessionID string, contextFullTurns int) *ContextBuilder {
+func NewContextBuilder(messageStore MessageStore, sessionBrowser SessionBrowser, sessionID string, contextFullTurns int) *ContextBuilder {
 	return &ContextBuilder{
-		store:          store,
+		messageStore:   messageStore,
 		sessionBrowser: sessionBrowser,
 		sessionID:      sessionID,
 		contextFull:    contextFullTurns,
@@ -25,7 +25,7 @@ func NewContextBuilder(store MessageStore, sessionBrowser SessionBrowser, sessio
 // When contextFull is negative or no session browser is configured, all in-memory messages are returned.
 // Otherwise historical turns are loaded and merged with the detailed messages from the current session.
 func (b *ContextBuilder) BuildContextMessages(ctx context.Context, currentTurnID string) []Message {
-	allMessages, err := b.store.AllMessages(ctx, b.sessionID)
+	allMessages, err := b.messageStore.AllMessages(ctx, b.sessionID)
 	if err != nil {
 		// Fail open to keep the conversation functional when store read fails.
 		return nil

@@ -104,13 +104,7 @@ func (d *db) Close() error { return d.conn.Close() }
 
 // HandleMessageEvent appends a message to the given session.
 // The session is materialized in the database only on the first user message.
-// Tool call events are skipped and not persisted.
 func (r *MessageRepository) HandleMessageEvent(ctx context.Context, event domain.MessageEvent) error {
-	// Skip tool call events; only persist actual messages.
-	if event.Kind == domain.CallKindToolCall {
-		return nil
-	}
-
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

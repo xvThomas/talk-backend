@@ -20,11 +20,12 @@ type ToolExecutionResult struct {
 type ToolExecutor struct {
 	toolsProvider func() []Tool
 	maxConcurrent int
+	toolHandler   ToolCallEventHandler
 }
 
 // NewToolExecutor creates a new ToolExecutor with the given tools provider and concurrency limit.
-func NewToolExecutor(toolsProvider func() []Tool, maxConcurrent int) *ToolExecutor {
-	return &ToolExecutor{toolsProvider: toolsProvider, maxConcurrent: maxConcurrent}
+func NewToolExecutor(toolsProvider func() []Tool, maxConcurrent int, toolHandler ToolCallEventHandler) *ToolExecutor {
+	return &ToolExecutor{toolsProvider: toolsProvider, maxConcurrent: maxConcurrent, toolHandler: toolHandler}
 }
 
 // Execute runs the given tool calls and returns the resulting messages.
@@ -63,6 +64,15 @@ func (e *ToolExecutor) executeSequential(ctx context.Context, turnID string, cal
 	executions := make([]ToolExecutionResult, 0, len(calls))
 	for _, call := range calls {
 		startedAt := time.Now()
+		if e.toolHandler != nil {
+			if err := e.toolHandler.HandleToolCallEvent(ctx, ToolCallEvent{
+				TurnID:    turnID,
+				ToolCall:  call,
+				StartedAt: startedAt,
+			}); err != nil {
+				return nil, fmt.Errorf("handling tool call event: %w", err)
+			}
+		}
 		result, err := e.ExecuteTool(ctx, call)
 		endedAt := time.Now()
 		if err != nil {
@@ -98,6 +108,16 @@ func (e *ToolExecutor) executeParallel(ctx context.Context, turnID string, calls
 			defer func() { <-sem }()
 
 			startedAt := time.Now()
+			if e.toolHandler != nil {
+				if err := e.toolHandler.HandleToolCallEvent(ctx, ToolCallEvent{
+					TurnID:    turnID,
+					ToolCall:  toolCall,
+					StartedAt: startedAt,
+				}); err != nil {
+					errors[idx] = fmt.Errorf("handling tool call event: %w", err)
+					return
+				}
+			}
 			result, err := e.ExecuteTool(ctx, toolCall)
 			endedAt := time.Now()
 			if err != nil {

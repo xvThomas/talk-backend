@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -73,7 +74,7 @@ func TestToolExecutor_ExecuteTool(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			executor := NewToolExecutor(func() []Tool { return tt.tools }, 1)
+			executor := NewToolExecutor(func() []Tool { return tt.tools }, 1, nil)
 			result, err := executor.ExecuteTool(context.Background(), tt.call)
 
 			if tt.wantErr {
@@ -99,7 +100,7 @@ func TestToolExecutor_ExecuteTool(t *testing.T) {
 }
 
 func TestToolExecutor_Execute_NoToolsRegistered(t *testing.T) {
-	executor := NewToolExecutor(func() []Tool { return nil }, 1)
+	executor := NewToolExecutor(func() []Tool { return nil }, 1, nil)
 	calls := []ToolCall{
 		{ID: "call-1", Name: "ghost-tool", Input: map[string]any{}},
 	}
@@ -121,7 +122,7 @@ func TestToolExecutor_Execute_Sequential(t *testing.T) {
 		},
 	}}
 
-	executor := NewToolExecutor(func() []Tool { return tools }, 1)
+	executor := NewToolExecutor(func() []Tool { return tools }, 1, nil)
 	calls := []ToolCall{
 		{ID: "call-1", Name: "test-tool", Input: map[string]any{"value": "first"}},
 		{ID: "call-2", Name: "test-tool", Input: map[string]any{"value": "second"}},
@@ -178,7 +179,7 @@ func TestToolExecutor_Execute_Error(t *testing.T) {
 		},
 	}}
 
-	executor := NewToolExecutor(func() []Tool { return tools }, 1)
+	executor := NewToolExecutor(func() []Tool { return tools }, 1, nil)
 	calls := []ToolCall{
 		{ID: "call-1", Name: "error-tool", Input: map[string]any{}},
 	}
@@ -197,7 +198,7 @@ func TestToolExecutor_Execute_Parallel(t *testing.T) {
 		},
 	}}
 
-	executor := NewToolExecutor(func() []Tool { return tools }, 2)
+	executor := NewToolExecutor(func() []Tool { return tools }, 2, nil)
 	calls := []ToolCall{
 		{ID: "call-1", Name: "test-tool", Input: map[string]any{"value": "parallel-1"}},
 		{ID: "call-2", Name: "test-tool", Input: map[string]any{"value": "parallel-2"}},
@@ -252,7 +253,7 @@ func TestToolExecutor_Execute_Parallel_Error(t *testing.T) {
 		},
 	}}
 
-	executor := NewToolExecutor(func() []Tool { return tools }, 2)
+	executor := NewToolExecutor(func() []Tool { return tools }, 2, nil)
 	calls := []ToolCall{
 		{ID: "call-1", Name: "error-tool", Input: map[string]any{}},
 		{ID: "call-2", Name: "error-tool", Input: map[string]any{}},
@@ -275,7 +276,7 @@ func TestToolExecutor_ResultContentIsJSON(t *testing.T) {
 		},
 	}}
 
-	executor := NewToolExecutor(func() []Tool { return tools }, 1)
+	executor := NewToolExecutor(func() []Tool { return tools }, 1, nil)
 	calls := []ToolCall{
 		{ID: "call-1", Name: "complex-tool", Input: map[string]any{}},
 	}
@@ -316,7 +317,7 @@ func (m *unmarshalableTool) Execute(ctx context.Context, input map[string]any) (
 func TestToolExecutor_JSONMarshalError(t *testing.T) {
 	tools := []Tool{&unmarshalableTool{mockTool{name: "bad-tool"}}}
 
-	executor := NewToolExecutor(func() []Tool { return tools }, 1)
+	executor := NewToolExecutor(func() []Tool { return tools }, 1, nil)
 	call := ToolCall{ID: "call-1", Name: "bad-tool", Input: map[string]any{}}
 
 	_, err := executor.ExecuteTool(context.Background(), call)
@@ -325,5 +326,52 @@ func TestToolExecutor_JSONMarshalError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "marshalling tool output") {
 		t.Errorf("expected marshalling error, got: %v", err)
+	}
+}
+
+type recordingToolCallHandler struct {
+	mu     sync.Mutex
+	events []ToolCallEvent
+}
+
+func (h *recordingToolCallHandler) HandleToolCallEvent(_ context.Context, event ToolCallEvent) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.events = append(h.events, event)
+	return nil
+}
+
+func TestToolExecutor_EmitToolCallEvent(t *testing.T) {
+	tools := []Tool{&mockTool{name: "test-tool"}}
+	handler := &recordingToolCallHandler{}
+	executor := NewToolExecutor(func() []Tool { return tools }, 1, handler)
+
+	calls := []ToolCall{
+		{ID: "call-1", Name: "test-tool", Input: map[string]any{"x": 1}},
+		{ID: "call-2", Name: "test-tool", Input: map[string]any{"x": 2}},
+	}
+
+	_, err := executor.Execute(context.Background(), "turn-42", calls)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+
+	if len(handler.events) != 2 {
+		t.Fatalf("expected 2 tool call events, got %d", len(handler.events))
+	}
+
+	for i, evt := range handler.events {
+		if evt.TurnID != "turn-42" {
+			t.Errorf("event %d: expected turn id turn-42, got %q", i, evt.TurnID)
+		}
+		if evt.ToolCall.ID != calls[i].ID {
+			t.Errorf("event %d: expected tool call id %q, got %q", i, calls[i].ID, evt.ToolCall.ID)
+		}
+		if evt.StartedAt.IsZero() {
+			t.Errorf("event %d: expected non-zero StartedAt", i)
+		}
 	}
 }

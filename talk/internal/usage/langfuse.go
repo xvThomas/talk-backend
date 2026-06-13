@@ -76,13 +76,7 @@ func NewLangfuseUsageReporter(config LangfuseConfig) *LangfuseUsageReporter {
 }
 
 // HandleMessageEvent buffers one message event.
-// Tool call events are skipped as they are not traced to Langfuse.
 func (l *LangfuseUsageReporter) HandleMessageEvent(_ context.Context, event domain.MessageEvent) error {
-	// Skip tool call events; only trace actual LLM calls.
-	if event.Kind == domain.CallKindToolCall {
-		return nil
-	}
-
 	if event.Message.Role != domain.RoleAssistant {
 		return nil
 	}

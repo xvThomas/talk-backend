@@ -43,13 +43,7 @@ var _ domain.SessionBrowser = (*Browser)(nil)
 // HandleMessageEvent appends a message to the given session.
 // The session is materialized only when the first user message is added.
 // The title is set from the first user message content.
-// Tool call events are skipped and not persisted.
 func (r *MessageRepository) HandleMessageEvent(_ context.Context, event domain.MessageEvent) error {
-	// Skip tool call events; only persist actual messages.
-	if event.Kind == domain.CallKindToolCall {
-		return nil
-	}
-
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
