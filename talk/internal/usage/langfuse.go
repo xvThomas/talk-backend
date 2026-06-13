@@ -14,7 +14,7 @@ import (
 	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
 )
 
-// LangfuseUsageReporter implements domain.UsageReporter by sending traces to Langfuse
+// LangfuseUsageReporter implements domain.MessageEventHandler by sending traces to Langfuse
 // via OpenTelemetry OTLP over HTTP. It buffers events and sends them asynchronously
 // for minimal performance impact.
 type LangfuseUsageReporter struct {
@@ -29,7 +29,7 @@ type LangfuseUsageReporter struct {
 
 // traceEvent represents an event to be sent to Langfuse
 type traceEvent struct {
-	eventType string // "api_call" or "conversation_turn"
+	eventType string // "message_event" or "turn_event"
 	data      any
 }
 
@@ -40,7 +40,7 @@ type LangfuseConfig struct {
 	BaseURL   string
 }
 
-var _ domain.UsageReporter = (*LangfuseUsageReporter)(nil) // compile-time interface check
+var _ domain.MessageEventHandler = (*LangfuseUsageReporter)(nil) // compile-time interface check
 
 // NewLangfuseUsageReporter creates a new Langfuse usage reporter.
 // It starts a background worker to process events asynchronously.
@@ -75,27 +75,41 @@ func NewLangfuseUsageReporter(config LangfuseConfig) *LangfuseUsageReporter {
 	return reporter
 }
 
-// OnAPICall implements domain.UsageReporter by buffering the API call event.
-func (l *LangfuseUsageReporter) OnAPICall(event domain.APICallEvent) {
+// HandleMessageEvent buffers one message event.
+// Tool call events are skipped as they are not traced to Langfuse.
+func (l *LangfuseUsageReporter) HandleMessageEvent(_ context.Context, event domain.MessageEvent) error {
+	// Skip tool call events; only trace actual LLM calls.
+	if event.Kind == domain.CallKindToolCall {
+		return nil
+	}
+
+	if event.Message.Role != domain.RoleAssistant {
+		return nil
+	}
+
 	select {
-	case l.eventBuffer <- traceEvent{eventType: "api_call", data: event}:
+	case l.eventBuffer <- traceEvent{eventType: "message_event", data: event}:
 	case <-l.ctx.Done():
-		return
+		return nil
 	default:
 		// Buffer full, drop event to prevent blocking
 		// In production, we might want to log this
 	}
+
+	return nil
 }
 
-// OnConversationTurn implements domain.UsageReporter by buffering the conversation turn event.
-func (l *LangfuseUsageReporter) OnConversationTurn(event domain.TurnEvent) {
+// HandleTurnEvent buffers one completed turn event.
+func (l *LangfuseUsageReporter) HandleTurnEvent(_ context.Context, event domain.TurnEvent) error {
 	select {
-	case l.eventBuffer <- traceEvent{eventType: "conversation_turn", data: event}:
+	case l.eventBuffer <- traceEvent{eventType: "turn_event", data: event}:
 	case <-l.ctx.Done():
-		return
+		return nil
 	default:
 		// Buffer full, drop event to prevent blocking
 	}
+
+	return nil
 }
 
 // Close gracefully shuts down the reporter, flushing any pending events.
@@ -120,16 +134,16 @@ func (l *LangfuseUsageReporter) processEvent(event traceEvent) error {
 	var err error
 
 	switch event.eventType {
-	case "api_call":
-		apiEvent, ok := event.data.(domain.APICallEvent)
+	case "message_event":
+		messageEvent, ok := event.data.(domain.MessageEvent)
 		if !ok {
-			return fmt.Errorf("invalid api_call event data")
+			return fmt.Errorf("invalid message event data")
 		}
-		otlpTrace, err = l.apiCallToOTLP(apiEvent)
-	case "conversation_turn":
+		otlpTrace, err = l.apiCallToOTLP(messageEvent)
+	case "turn_event":
 		turnEvent, ok := event.data.(domain.TurnEvent)
 		if !ok {
-			return fmt.Errorf("invalid conversation_turn event data")
+			return fmt.Errorf("invalid turn event data")
 		}
 		otlpTrace, err = l.conversationTurnToOTLP(turnEvent)
 	default:

@@ -67,6 +67,7 @@ type MessageRepository struct{ *db }
 type Browser struct{ *db }
 
 var _ domain.MessageStore = (*MessageRepository)(nil)
+var _ domain.MessageEventHandler = (*MessageRepository)(nil)
 var _ domain.SessionBrowser = (*Browser)(nil)
 
 // New opens (or creates) a SQLite database at dbPath and returns a MessageRepository and Browser.
@@ -101,11 +102,20 @@ func (d *db) DB() *sql.DB { return d.conn }
 // Close closes the underlying database connection.
 func (d *db) Close() error { return d.conn.Close() }
 
-// AddMessage appends a message to the given session.
+// HandleMessageEvent appends a message to the given session.
 // The session is materialized in the database only on the first user message.
-func (r *MessageRepository) AddMessage(ctx context.Context, msg domain.Message, scope domain.SessionScope) error {
+// Tool call events are skipped and not persisted.
+func (r *MessageRepository) HandleMessageEvent(ctx context.Context, event domain.MessageEvent) error {
+	// Skip tool call events; only persist actual messages.
+	if event.Kind == domain.CallKindToolCall {
+		return nil
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	msg := event.Message
+	scope := event.SessionScope
 
 	// Check if session is materialized.
 	materialized, err := r.isSessionMaterialized(ctx, scope.SessionID())
@@ -161,37 +171,25 @@ func (r *MessageRepository) AddMessage(ctx context.Context, msg domain.Message, 
 		return fmt.Errorf("inserting message: %w", err)
 	}
 
-	return r.upsertHistoryTurn(ctx, scope.SessionID(), msg, now)
+	return nil
 }
 
-func (r *MessageRepository) isSessionMaterialized(ctx context.Context, sessionID string) (bool, error) {
-	var count int
-	if err := r.conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE id = ?", sessionID).Scan(&count); err != nil {
-		return false, fmt.Errorf("checking session existence: %w", err)
-	}
-	return count > 0, nil
-}
+// HandleTurnEvent persists one completed turn into history_turns.
+func (r *MessageRepository) HandleTurnEvent(ctx context.Context, event domain.TurnEvent) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-func (r *MessageRepository) upsertHistoryTurn(ctx context.Context, sessionID string, msg domain.Message, now string) error {
-	if msg.TurnID == "" {
+	if event.TurnID == "" {
 		return nil
 	}
 
-	question := ""
-	answer := ""
-	var questionAt any
-	var answerAt any
-
-	if msg.Role == domain.RoleUser && msg.Content != "" {
-		question = msg.Content
-		questionAt = now
+	questionAt := any(nil)
+	answerAt := any(nil)
+	if !event.StartedAt.IsZero() {
+		questionAt = event.StartedAt.UTC().Format(timeFormat)
 	}
-	if msg.Role == domain.RoleAssistant && msg.Content != "" && len(msg.ToolCalls) == 0 {
-		answer = msg.Content
-		answerAt = now
-	}
-	if question == "" && answer == "" {
-		return nil
+	if !event.EndedAt.IsZero() {
+		answerAt = event.EndedAt.UTC().Format(timeFormat)
 	}
 
 	if _, err := r.conn.ExecContext(ctx,
@@ -202,16 +200,25 @@ func (r *MessageRepository) upsertHistoryTurn(ctx context.Context, sessionID str
 		   answer = CASE WHEN excluded.answer <> '' THEN excluded.answer ELSE history_turns.answer END,
 		   question_at = COALESCE(excluded.question_at, history_turns.question_at),
 		   answer_at = COALESCE(excluded.answer_at, history_turns.answer_at)`,
-		sessionID,
-		msg.TurnID,
-		question,
-		answer,
+		event.SessionScope.SessionID(),
+		event.TurnID,
+		event.Input,
+		event.Output,
 		questionAt,
 		answerAt,
 	); err != nil {
 		return fmt.Errorf("upserting history turn: %w", err)
 	}
+
 	return nil
+}
+
+func (r *MessageRepository) isSessionMaterialized(ctx context.Context, sessionID string) (bool, error) {
+	var count int
+	if err := r.conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE id = ?", sessionID).Scan(&count); err != nil {
+		return false, fmt.Errorf("checking session existence: %w", err)
+	}
+	return count > 0, nil
 }
 
 // AllMessages returns all messages for the given session.

@@ -127,16 +127,26 @@ func TestToolExecutor_Execute_Sequential(t *testing.T) {
 		{ID: "call-2", Name: "test-tool", Input: map[string]any{"value": "second"}},
 	}
 
-	messages, err := executor.Execute(context.Background(), "turn-123", calls)
+	executions, err := executor.Execute(context.Background(), "turn-123", calls)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(messages) != 2 {
-		t.Fatalf("expected 2 messages, got %d", len(messages))
+	if len(executions) != 2 {
+		t.Fatalf("expected 2 executions, got %d", len(executions))
 	}
 
-	for i, msg := range messages {
+	for i, exec := range executions {
+		msg := exec.Message
+		if exec.StartedAt.IsZero() {
+			t.Errorf("execution %d: StartedAt should not be zero", i)
+		}
+		if exec.EndedAt.IsZero() {
+			t.Errorf("execution %d: EndedAt should not be zero", i)
+		}
+		if exec.EndedAt.Before(exec.StartedAt) {
+			t.Errorf("execution %d: EndedAt should be >= StartedAt", i)
+		}
 		if msg.Role != RoleTool {
 			t.Errorf("message %d: expected RoleTool, got %v", i, msg.Role)
 		}
@@ -145,6 +155,14 @@ func TestToolExecutor_Execute_Sequential(t *testing.T) {
 		}
 		if len(msg.ToolCalls) != 1 {
 			t.Errorf("message %d: expected 1 ToolCall, got %d", i, len(msg.ToolCalls))
+		}
+		if len(msg.ToolCalls) == 1 {
+			if msg.ToolCalls[0].ID != calls[i].ID {
+				t.Errorf("message %d: expected ToolCall ID %q, got %q", i, calls[i].ID, msg.ToolCalls[0].ID)
+			}
+			if msg.ToolCalls[0].Name != calls[i].Name {
+				t.Errorf("message %d: expected ToolCall name %q, got %q", i, calls[i].Name, msg.ToolCalls[0].Name)
+			}
 		}
 		if len(msg.ToolResults) != 1 {
 			t.Errorf("message %d: expected 1 ToolResult, got %d", i, len(msg.ToolResults))
@@ -186,21 +204,42 @@ func TestToolExecutor_Execute_Parallel(t *testing.T) {
 		{ID: "call-3", Name: "test-tool", Input: map[string]any{"value": "parallel-3"}},
 	}
 
-	messages, err := executor.Execute(context.Background(), "turn-456", calls)
+	executions, err := executor.Execute(context.Background(), "turn-456", calls)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(messages) != 3 {
-		t.Fatalf("expected 3 messages, got %d", len(messages))
+	if len(executions) != 3 {
+		t.Fatalf("expected 3 executions, got %d", len(executions))
 	}
 
-	for i, msg := range messages {
+	for i, exec := range executions {
+		msg := exec.Message
+		if exec.StartedAt.IsZero() {
+			t.Errorf("execution %d: StartedAt should not be zero", i)
+		}
+		if exec.EndedAt.IsZero() {
+			t.Errorf("execution %d: EndedAt should not be zero", i)
+		}
+		if exec.EndedAt.Before(exec.StartedAt) {
+			t.Errorf("execution %d: EndedAt should be >= StartedAt", i)
+		}
 		if msg.Role != RoleTool {
 			t.Errorf("message %d: expected RoleTool, got %v", i, msg.Role)
 		}
 		if msg.TurnID != "turn-456" {
 			t.Errorf("message %d: expected TurnID 'turn-456', got %q", i, msg.TurnID)
+		}
+		if len(msg.ToolCalls) != 1 {
+			t.Errorf("message %d: expected 1 ToolCall, got %d", i, len(msg.ToolCalls))
+		}
+		if len(msg.ToolCalls) == 1 {
+			if msg.ToolCalls[0].ID != calls[i].ID {
+				t.Errorf("message %d: expected ToolCall ID %q, got %q", i, calls[i].ID, msg.ToolCalls[0].ID)
+			}
+			if msg.ToolCalls[0].Name != calls[i].Name {
+				t.Errorf("message %d: expected ToolCall name %q, got %q", i, calls[i].Name, msg.ToolCalls[0].Name)
+			}
 		}
 	}
 }
@@ -241,14 +280,17 @@ func TestToolExecutor_ResultContentIsJSON(t *testing.T) {
 		{ID: "call-1", Name: "complex-tool", Input: map[string]any{}},
 	}
 
-	messages, err := executor.Execute(context.Background(), "turn-1", calls)
+	executions, err := executor.Execute(context.Background(), "turn-1", calls)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(executions) != 1 {
+		t.Fatalf("expected 1 execution, got %d", len(executions))
 	}
 
 	// Verify the content is valid JSON
 	var result map[string]any
-	if err := json.Unmarshal([]byte(messages[0].ToolResults[0].Content), &result); err != nil {
+	if err := json.Unmarshal([]byte(executions[0].Message.ToolResults[0].Content), &result); err != nil {
 		t.Errorf("ToolResult.Content is not valid JSON: %v", err)
 	}
 }

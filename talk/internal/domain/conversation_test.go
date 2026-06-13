@@ -34,12 +34,19 @@ func (s *stubClient) Complete(_ context.Context, _ string, messages []Message, _
 
 // stubUsageReporter records every event emitted by ConversationManager.
 type stubUsageReporter struct {
-	apiCalls []APICallEvent
-	turns    []TurnEvent
+	messageEvents []MessageEvent
+	turns         []TurnEvent
 }
 
-func (r *stubUsageReporter) OnAPICall(e APICallEvent)       { r.apiCalls = append(r.apiCalls, e) }
-func (r *stubUsageReporter) OnConversationTurn(e TurnEvent) { r.turns = append(r.turns, e) }
+func (r *stubUsageReporter) HandleMessageEvent(_ context.Context, e MessageEvent) error {
+	r.messageEvents = append(r.messageEvents, e)
+	return nil
+}
+
+func (r *stubUsageReporter) HandleTurnEvent(_ context.Context, e TurnEvent) error {
+	r.turns = append(r.turns, e)
+	return nil
+}
 
 // stubStore is a simple in-memory MessageStore for tests.
 type stubStore struct {
@@ -47,30 +54,46 @@ type stubStore struct {
 	history  map[string][]HistoryTurn
 }
 
-func (s *stubStore) AddMessage(_ context.Context, msg Message, scope SessionScope) error {
+func (s *stubStore) HandleMessageEvent(_ context.Context, event MessageEvent) error {
+	// Skip tool call events; only persist actual messages.
+	if event.Kind == CallKindToolCall {
+		return nil
+	}
+
+	msg := event.Message
+	scope := event.SessionScope
+
 	if s.messages == nil {
 		s.messages = make(map[string][]Message)
 	}
 	s.messages[scope.SessionID()] = append(s.messages[scope.SessionID()], msg)
-	if msg.TurnID == "" {
+	return nil
+}
+
+func (s *stubStore) HandleTurnEvent(_ context.Context, event TurnEvent) error {
+	if event.TurnID == "" {
 		return nil
 	}
 	if s.history == nil {
 		s.history = make(map[string][]HistoryTurn)
 	}
-	turns := s.history[scope.SessionID()]
-	switch {
-	case msg.Role == RoleUser && msg.Content != "":
-		turns = append(turns, HistoryTurn{TurnID: msg.TurnID, Question: msg.Content, At: time.Now()})
-	case msg.Role == RoleAssistant && msg.Content != "" && len(msg.ToolCalls) == 0:
-		for i := range turns {
-			if turns[i].TurnID == msg.TurnID {
-				turns[i].Answer = msg.Content
-				break
-			}
+	turns := s.history[event.SessionScope.SessionID()]
+	for i := range turns {
+		if turns[i].TurnID == event.TurnID {
+			turns[i].Question = event.Input
+			turns[i].Answer = event.Output
+			turns[i].At = event.EndedAt
+			s.history[event.SessionScope.SessionID()] = turns
+			return nil
 		}
 	}
-	s.history[scope.SessionID()] = turns
+
+	s.history[event.SessionScope.SessionID()] = append(turns, HistoryTurn{
+		TurnID:   event.TurnID,
+		Question: event.Input,
+		Answer:   event.Output,
+		At:       event.EndedAt,
+	})
 	return nil
 }
 func (s *stubStore) AllMessages(_ context.Context, sessionID string) ([]Message, error) {
@@ -137,8 +160,8 @@ func (t *stubTool) OutputSchema() (map[string]any, error) {
 
 func newManager(client *stubClient, tools []Tool) (*ConversationManager, *stubUsageReporter) {
 	reporter := &stubUsageReporter{}
-	reporters := []UsageReporter{reporter}
 	store := &stubStore{}
+	handlers := NewMessageEventHandlers([][]MessageEventHandler{{store}, {reporter}})
 	mgr := NewConversationManager(ConversationManagerConfig{
 		Client:             client,
 		ModelID:            "test-model",
@@ -148,7 +171,7 @@ func newManager(client *stubClient, tools []Tool) (*ConversationManager, *stubUs
 		SessionBrowser:     store,
 		PromptProvider:     &stubPromptProvider{"system"},
 		Tools:              func() []Tool { return tools },
-		Reporters:          reporters,
+		EventHandlers:      handlers,
 		MaxConcurrentTools: 2,
 		ContextFullTurns:   -1,
 	})
@@ -247,20 +270,26 @@ func TestUsage_OnAPICallFiredPerComplete(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(reporter.apiCalls) != 2 {
-		t.Fatalf("expected 2 OnAPICall events, got %d", len(reporter.apiCalls))
+	assistantEvents := make([]MessageEvent, 0, len(reporter.messageEvents))
+	for _, event := range reporter.messageEvents {
+		if event.Message.Role == RoleAssistant {
+			assistantEvents = append(assistantEvents, event)
+		}
 	}
-	if reporter.apiCalls[0].Kind != CallKindInitial {
-		t.Errorf("first call kind: got %q, want %q", reporter.apiCalls[0].Kind, CallKindInitial)
+	if len(assistantEvents) != 2 {
+		t.Fatalf("expected 2 assistant message events, got %d", len(assistantEvents))
 	}
-	if reporter.apiCalls[1].Kind != CallKindToolResult {
-		t.Errorf("second call kind: got %q, want %q", reporter.apiCalls[1].Kind, CallKindToolResult)
+	if assistantEvents[0].Kind != CallKindInitial {
+		t.Errorf("first call kind: got %q, want %q", assistantEvents[0].Kind, CallKindInitial)
 	}
-	if reporter.apiCalls[0].Usage.InputTokens != 10 {
-		t.Errorf("first call input tokens: got %d, want 10", reporter.apiCalls[0].Usage.InputTokens)
+	if assistantEvents[1].Kind != CallKindToolResult {
+		t.Errorf("second call kind: got %q, want %q", assistantEvents[1].Kind, CallKindToolResult)
 	}
-	if reporter.apiCalls[1].Usage.InputTokens != 20 {
-		t.Errorf("second call input tokens: got %d, want 20", reporter.apiCalls[1].Usage.InputTokens)
+	if assistantEvents[0].Usage.InputTokens != 10 {
+		t.Errorf("first call input tokens: got %d, want 10", assistantEvents[0].Usage.InputTokens)
+	}
+	if assistantEvents[1].Usage.InputTokens != 20 {
+		t.Errorf("second call input tokens: got %d, want 20", assistantEvents[1].Usage.InputTokens)
 	}
 }
 
@@ -299,8 +328,8 @@ func TestUsage_OnConversationTurnAggregatesUsage(t *testing.T) {
 	if turn.TotalUsage.CacheReadTokens != 2 {
 		t.Errorf("total cache read tokens: got %d, want 2", turn.TotalUsage.CacheReadTokens)
 	}
-	if turn.Model != "test-model" {
-		t.Errorf("model: got %q, want %q", turn.Model, "test-model")
+	if turn.Model.Name != "test-model" {
+		t.Errorf("model: got %q, want %q", turn.Model.Name, "test-model")
 	}
 }
 
@@ -316,11 +345,18 @@ func TestUsage_NoToolCall_SingleAPICallEvent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(reporter.apiCalls) != 1 {
-		t.Fatalf("expected 1 api call event, got %d", len(reporter.apiCalls))
+	assistantEvents := make([]MessageEvent, 0, len(reporter.messageEvents))
+	for _, event := range reporter.messageEvents {
+		if event.Message.Role == RoleAssistant {
+			assistantEvents = append(assistantEvents, event)
+		}
 	}
-	if reporter.apiCalls[0].Kind != CallKindInitial {
-		t.Errorf("expected CallKindInitial, got %q", reporter.apiCalls[0].Kind)
+
+	if len(assistantEvents) != 1 {
+		t.Fatalf("expected 1 assistant message event, got %d", len(assistantEvents))
+	}
+	if assistantEvents[0].Kind != CallKindInitial {
+		t.Errorf("expected CallKindInitial, got %q", assistantEvents[0].Kind)
 	}
 	if len(reporter.turns) != 1 {
 		t.Fatalf("expected 1 turn event, got %d", len(reporter.turns))
@@ -370,7 +406,7 @@ func TestConversation_ParallelToolExecution(t *testing.T) {
 		SessionBrowser:     store,
 		PromptProvider:     &stubPromptProvider{"system"},
 		Tools:              func() []Tool { return []Tool{tool1, tool2, tool3} },
-		Reporters:          []UsageReporter{reporter},
+		EventHandlers:      NewMessageEventHandlers([][]MessageEventHandler{{store}, {reporter}}),
 		MaxConcurrentTools: 2,
 		ContextFullTurns:   -1,
 	})
@@ -422,7 +458,7 @@ func TestConversation_SequentialWhenMaxConcurrentIsOne(t *testing.T) {
 		SessionBrowser:     store,
 		PromptProvider:     &stubPromptProvider{"system"},
 		Tools:              func() []Tool { return []Tool{tool1, tool2} },
-		Reporters:          []UsageReporter{reporter},
+		EventHandlers:      NewMessageEventHandlers([][]MessageEventHandler{{store}, {reporter}}),
 		MaxConcurrentTools: 1,
 		ContextFullTurns:   -1,
 	})
@@ -466,6 +502,7 @@ func TestConversation_OneToolMessagePerExecution(t *testing.T) {
 		SessionBrowser:     store,
 		PromptProvider:     &stubPromptProvider{"system"},
 		Tools:              func() []Tool { return []Tool{tool1, tool2} },
+		EventHandlers:      NewMessageEventHandlers([][]MessageEventHandler{{store}}),
 		MaxConcurrentTools: 1,
 		ContextFullTurns:   -1,
 	})
@@ -527,6 +564,7 @@ func TestConversation_AssistantToolOnlyResponseGetsSummaryAndTurnID(t *testing.T
 		SessionBrowser:     store,
 		PromptProvider:     &stubPromptProvider{"system"},
 		Tools:              func() []Tool { return []Tool{tool} },
+		EventHandlers:      NewMessageEventHandlers([][]MessageEventHandler{{store}}),
 		MaxConcurrentTools: 2,
 		ContextFullTurns:   -1,
 	})
@@ -673,6 +711,7 @@ func TestConversation_ChatUsesExpectedContextSizesByMode(t *testing.T) {
 			SessionBrowser:     store,
 			PromptProvider:     &stubPromptProvider{"system"},
 			Tools:              func() []Tool { return []Tool{tool} },
+			EventHandlers:      NewMessageEventHandlers([][]MessageEventHandler{{store}}),
 			MaxConcurrentTools: 1,
 			ContextFullTurns:   mode,
 		})

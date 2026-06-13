@@ -88,29 +88,29 @@ func intValue(i int64) OTLPValue {
 
 // Mapping functions from domain events to OpenTelemetry format
 
-// apiCallToOTLP converts a domain.APICallEvent to OpenTelemetry format
-func (l *LangfuseUsageReporter) apiCallToOTLP(event domain.APICallEvent) (*OTLPTrace, error) {
-	traceID := event.TraceID
+// apiCallToOTLP converts a domain.MessageEvent to OpenTelemetry format
+func (l *LangfuseUsageReporter) apiCallToOTLP(event domain.MessageEvent) (*OTLPTrace, error) {
+	traceID := event.Message.TurnID
 	spanID := generateSpanID()
-	parentSpanID := event.ParentSpanID
+	parentSpanID := event.TurnSpanID
 
 	// OTLPProvider constants are defined to match OTel GenAI semantic conventions directly.
-	system := string(event.OLTPProvider)
+	system := string(event.Model.OLTPProvider)
 
 	attributes := []OTLPAttribute{
 		// GenAI semantic conventions
-		{Key: "gen_ai.system", Value: stringValue(system)},
-		{Key: "gen_ai.request.model", Value: stringValue(event.Model)},
-		{Key: "gen_ai.response.model", Value: stringValue(event.Model)},
+		{Key: "gen_ai.provider.name", Value: stringValue(system)},
+		{Key: "gen_ai.request.model", Value: stringValue(event.Model.Name)},
+		{Key: "gen_ai.response.model", Value: stringValue(event.Model.Name)},
 		{Key: "gen_ai.operation.name", Value: stringValue(string(event.Kind))},
 
 		// Input and output for Langfuse
-		{Key: "gen_ai.prompt", Value: stringValue(event.Input)},
-		{Key: "gen_ai.completion", Value: stringValue(event.Output)},
+		{Key: "gen_ai.prompt", Value: stringValue(event.APICall.Input)},
+		{Key: "gen_ai.completion", Value: stringValue(event.APICall.Output)},
 
 		// Langfuse-specific input/output
-		{Key: "langfuse.observation.input", Value: stringValue(event.Input)},
-		{Key: "langfuse.observation.output", Value: stringValue(event.Output)},
+		{Key: "langfuse.observation.input", Value: stringValue(event.APICall.Input)},
+		{Key: "langfuse.observation.output", Value: stringValue(event.APICall.Output)},
 
 		// Usage information
 		{Key: "gen_ai.usage.input_tokens", Value: intValue(event.Usage.InputTokens)},
@@ -126,8 +126,8 @@ func (l *LangfuseUsageReporter) apiCallToOTLP(event domain.APICallEvent) (*OTLPT
 	}
 
 	// Add tool call information if present
-	if len(event.ToolCalls) > 0 {
-		toolCallsJSON, _ := json.Marshal(event.ToolCalls)
+	if len(event.Message.ToolCalls) > 0 {
+		toolCallsJSON, _ := json.Marshal(event.Message.ToolCalls)
 		attributes = append(attributes, OTLPAttribute{
 			Key:   "langfuse.observation.metadata.tool_calls",
 			Value: stringValue(string(toolCallsJSON)),
@@ -135,7 +135,7 @@ func (l *LangfuseUsageReporter) apiCallToOTLP(event domain.APICallEvent) (*OTLPT
 
 		// Add tool names for easier filtering
 		var toolNames []string
-		for _, tc := range event.ToolCalls {
+		for _, tc := range event.Message.ToolCalls {
 			toolNames = append(toolNames, tc.Name)
 		}
 		toolNamesJSON, _ := json.Marshal(toolNames)
@@ -164,20 +164,20 @@ func (l *LangfuseUsageReporter) apiCallToOTLP(event domain.APICallEvent) (*OTLPT
 
 // conversationTurnToOTLP converts a domain.TurnEvent to OpenTelemetry format
 func (l *LangfuseUsageReporter) conversationTurnToOTLP(event domain.TurnEvent) (*OTLPTrace, error) {
-	traceID := event.TraceID
-	spanID := event.SpanID
+	traceID := event.TurnID
+	spanID := event.TurnSpanID
 
 	attributes := []OTLPAttribute{
 		// Trace-level attributes (Langfuse OTLP mapping)
 		{Key: "langfuse.trace.name", Value: stringValue("conversation_turn")},
-		{Key: "langfuse.session.id", Value: stringValue(event.SessionID)},
-		{Key: "langfuse.user.id", Value: stringValue(event.UserID)},
+		{Key: "langfuse.session.id", Value: stringValue(event.SessionScope.SessionID())},
+		{Key: "langfuse.user.id", Value: stringValue(event.SessionScope.UserID())},
 		{Key: "langfuse.trace.input", Value: stringValue(event.Input)},
 		{Key: "langfuse.trace.output", Value: stringValue(event.Output)},
 
 		// Model information
-		{Key: "gen_ai.request.model", Value: stringValue(event.Model)},
-		{Key: "gen_ai.response.model", Value: stringValue(event.Model)},
+		{Key: "gen_ai.request.model", Value: stringValue(event.Model.Name)},
+		{Key: "gen_ai.response.model", Value: stringValue(event.Model.Name)},
 
 		// Input and output for Langfuse
 		{Key: "gen_ai.prompt", Value: stringValue(event.Input)},

@@ -5,7 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 )
+
+// ToolExecutionResult captures a single tool execution with its timing metadata.
+type ToolExecutionResult struct {
+	Message   Message
+	StartedAt time.Time
+	EndedAt   time.Time
+}
 
 // ToolExecutor handles the execution of tool calls and returns messages
 // that can be added to the conversation store.
@@ -21,7 +29,7 @@ func NewToolExecutor(toolsProvider func() []Tool, maxConcurrent int) *ToolExecut
 
 // Execute runs the given tool calls and returns the resulting messages.
 // It chooses sequential or parallel execution based on the concurrency configuration.
-func (e *ToolExecutor) Execute(ctx context.Context, turnID string, calls []ToolCall) ([]Message, error) {
+func (e *ToolExecutor) Execute(ctx context.Context, turnID string, calls []ToolCall) ([]ToolExecutionResult, error) {
 	available := e.toolsProvider()
 	if len(available) == 0 {
 		return nil, fmt.Errorf("model requested tool calls but no tools are registered")
@@ -51,25 +59,31 @@ func (e *ToolExecutor) ExecuteTool(ctx context.Context, call ToolCall) (ToolResu
 	return ToolResult{}, fmt.Errorf("unknown tool %q", call.Name)
 }
 
-func (e *ToolExecutor) executeSequential(ctx context.Context, turnID string, calls []ToolCall) ([]Message, error) {
-	messages := make([]Message, 0, len(calls))
+func (e *ToolExecutor) executeSequential(ctx context.Context, turnID string, calls []ToolCall) ([]ToolExecutionResult, error) {
+	executions := make([]ToolExecutionResult, 0, len(calls))
 	for _, call := range calls {
+		startedAt := time.Now()
 		result, err := e.ExecuteTool(ctx, call)
+		endedAt := time.Now()
 		if err != nil {
 			return nil, err
 		}
-		messages = append(messages, Message{
-			Role:        RoleTool,
-			ToolCalls:   []ToolCall{call},
-			ToolResults: []ToolResult{result},
-			TurnID:      turnID,
+		executions = append(executions, ToolExecutionResult{
+			Message: Message{
+				Role:        RoleTool,
+				ToolCalls:   []ToolCall{call},
+				ToolResults: []ToolResult{result},
+				TurnID:      turnID,
+			},
+			StartedAt: startedAt,
+			EndedAt:   endedAt,
 		})
 	}
-	return messages, nil
+	return executions, nil
 }
 
-func (e *ToolExecutor) executeParallel(ctx context.Context, turnID string, calls []ToolCall) ([]Message, error) {
-	results := make([]ToolResult, len(calls))
+func (e *ToolExecutor) executeParallel(ctx context.Context, turnID string, calls []ToolCall) ([]ToolExecutionResult, error) {
+	executions := make([]ToolExecutionResult, len(calls))
 	errors := make([]error, len(calls))
 
 	sem := make(chan struct{}, e.maxConcurrent)
@@ -83,12 +97,23 @@ func (e *ToolExecutor) executeParallel(ctx context.Context, turnID string, calls
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
+			startedAt := time.Now()
 			result, err := e.ExecuteTool(ctx, toolCall)
+			endedAt := time.Now()
 			if err != nil {
 				errors[idx] = err
 				return
 			}
-			results[idx] = result
+			executions[idx] = ToolExecutionResult{
+				Message: Message{
+					Role:        RoleTool,
+					ToolCalls:   []ToolCall{toolCall},
+					ToolResults: []ToolResult{result},
+					TurnID:      turnID,
+				},
+				StartedAt: startedAt,
+				EndedAt:   endedAt,
+			}
 		}(i, call)
 	}
 
@@ -100,14 +125,5 @@ func (e *ToolExecutor) executeParallel(ctx context.Context, turnID string, calls
 		}
 	}
 
-	messages := make([]Message, 0, len(calls))
-	for i, call := range calls {
-		messages = append(messages, Message{
-			Role:        RoleTool,
-			ToolCalls:   []ToolCall{call},
-			ToolResults: []ToolResult{results[i]},
-			TurnID:      turnID,
-		})
-	}
-	return messages, nil
+	return executions, nil
 }

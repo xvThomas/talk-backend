@@ -2,6 +2,7 @@ package inmemory
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,17 +12,70 @@ import (
 var scope = domain.NewSessionScope("sess-1", "user1")
 
 type messageStore interface {
-	AddMessage(context.Context, domain.Message, domain.SessionScope) error
+	HandleMessageEvent(context.Context, domain.MessageEvent) error
+	HandleTurnEvent(context.Context, domain.TurnEvent) error
 }
 
 type messageCleaner interface {
 	ClearMessages(context.Context, string) error
 }
 
+var (
+	lastTurnIDBySession   = map[string]string{}
+	lastQuestionBySession = map[string]string{}
+	turnCounter           int64
+)
+
 func mustAddMessage(t *testing.T, store messageStore, msg domain.Message, scope domain.SessionScope) {
 	t.Helper()
-	if err := store.AddMessage(context.Background(), msg, scope); err != nil {
-		t.Fatalf("AddMessage: %v", err)
+
+	if msg.TurnID == "" && msg.Role == domain.RoleUser {
+		turnCounter++
+		msg.TurnID = fmt.Sprintf("turn-%d", turnCounter)
+	}
+	if msg.TurnID == "" && msg.Role == domain.RoleAssistant {
+		msg.TurnID = lastTurnIDBySession[scope.SessionID()]
+	}
+
+	if err := store.HandleMessageEvent(context.Background(), domain.MessageEvent{
+		Message:      msg,
+		SessionScope: scope,
+	}); err != nil {
+		t.Fatalf("HandleMessageEvent: %v", err)
+	}
+
+	if msg.Role == domain.RoleUser {
+		lastTurnIDBySession[scope.SessionID()] = msg.TurnID
+		lastQuestionBySession[scope.SessionID()] = msg.Content
+		if err := store.HandleTurnEvent(context.Background(), domain.TurnEvent{
+			TurnID:       msg.TurnID,
+			TurnSpanID:   "span-1",
+			SessionScope: scope,
+			Model:        domain.Model{Name: "test-model"},
+			StartedAt:    time.Now(),
+			EndedAt:      time.Now(),
+			Input:        msg.Content,
+			Output:       "",
+			CallCount:    0,
+		}); err != nil {
+			t.Fatalf("HandleTurnEvent(user): %v", err)
+		}
+	}
+
+	if msg.Role == domain.RoleAssistant && msg.Content != "" && len(msg.ToolCalls) == 0 {
+		if err := store.HandleTurnEvent(context.Background(), domain.TurnEvent{
+			TurnID:       msg.TurnID,
+			TurnSpanID:   "span-1",
+			SessionScope: scope,
+			Model:        domain.Model{Name: "test-model"},
+			StartedAt:    time.Now(),
+			EndedAt:      time.Now(),
+			Input:        lastQuestionBySession[scope.SessionID()],
+			Output:       msg.Content,
+			CallCount:    1,
+		}); err != nil {
+			t.Fatalf("HandleTurnEvent: %v", err)
+		}
 	}
 }
 

@@ -54,8 +54,6 @@ func (s SessionScope) UserID() string { return s.userID }
 // MessageStore persists conversation messages.
 // Implementations are fully stateless — all identity context is passed via parameters.
 type MessageStore interface {
-	// AddMessage adds a message to the given session.
-	AddMessage(ctx context.Context, msg Message, scope SessionScope) error
 	// AllMessages returns all messages for the given session.
 	AllMessages(ctx context.Context, sessionID string) ([]Message, error)
 	// ClearMessages removes all messages for the given session.

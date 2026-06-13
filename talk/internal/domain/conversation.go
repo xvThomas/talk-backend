@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -20,7 +19,7 @@ type ConversationManager struct {
 	store          MessageStore
 	promptProvider PromptProvider
 	toolsProvider  func() []Tool
-	reporters      []UsageReporter
+	handlers       MessageEventHandler
 	contextBuilder *ContextBuilder
 	executor       *ToolExecutor
 }
@@ -35,13 +34,18 @@ type ConversationManagerConfig struct {
 	SessionBrowser     SessionBrowser
 	PromptProvider     PromptProvider
 	Tools              func() []Tool
-	Reporters          []UsageReporter
+	EventHandlers      MessageEventHandler
 	MaxConcurrentTools int
 	ContextFullTurns   int
 }
 
 // NewConversationManager creates a ConversationManager.
 func NewConversationManager(cfg ConversationManagerConfig) *ConversationManager {
+	handlers := cfg.EventHandlers
+	if handlers == nil {
+		handlers = NoOpMessageEventHandler{}
+	}
+
 	return &ConversationManager{
 		scope:          cfg.Scope,
 		client:         cfg.Client,
@@ -50,7 +54,7 @@ func NewConversationManager(cfg ConversationManagerConfig) *ConversationManager 
 		store:          cfg.Store,
 		promptProvider: cfg.PromptProvider,
 		toolsProvider:  cfg.Tools,
-		reporters:      cfg.Reporters,
+		handlers:       handlers,
 		contextBuilder: NewContextBuilder(cfg.Store, cfg.SessionBrowser, cfg.Scope.SessionID(), cfg.ContextFullTurns),
 		executor:       NewToolExecutor(cfg.Tools, cfg.MaxConcurrentTools),
 	}
@@ -60,46 +64,6 @@ func NewConversationManager(cfg ConversationManagerConfig) *ConversationManager 
 func (m *ConversationManager) SetScope(scope SessionScope) {
 	m.scope = scope
 	m.contextBuilder.sessionID = scope.SessionID()
-}
-
-// reportAPICall calls OnAPICall on all reporters in parallel.
-func (m *ConversationManager) reportAPICall(event APICallEvent) {
-	if len(m.reporters) == 0 {
-		return
-	}
-
-	var wg sync.WaitGroup
-	for _, reporter := range m.reporters {
-		wg.Add(1)
-		go func(r UsageReporter) {
-			defer wg.Done()
-			defer func() {
-				recover() //nolint:errcheck // Don't let reporter panics crash the application
-			}()
-			r.OnAPICall(event)
-		}(reporter)
-	}
-	wg.Wait()
-}
-
-// reportConversationTurn calls OnConversationTurn on all reporters in parallel.
-func (m *ConversationManager) reportConversationTurn(event TurnEvent) {
-	if len(m.reporters) == 0 {
-		return
-	}
-
-	var wg sync.WaitGroup
-	for _, reporter := range m.reporters {
-		wg.Add(1)
-		go func(r UsageReporter) {
-			defer wg.Done()
-			defer func() {
-				recover() //nolint:errcheck // Don't let reporter panics crash the application
-			}()
-			r.OnConversationTurn(event)
-		}(reporter)
-	}
-	wg.Wait()
 }
 
 // SetClient replaces the active LLM client and model without resetting the conversation history.
@@ -118,15 +82,22 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 
 	// turnID is used to correlate all messages, API calls, and tool calls for this conversation turn in observability.
 	turnID := GenerateTraceID()
-	// Store the user message in the conversation history before processing to ensure it's included in the context
-	// for the first API call and in observability.
-	if err := m.store.AddMessage(ctx, Message{Role: RoleUser, Content: userInput, TurnID: turnID}, m.scope); err != nil {
-		return "", fmt.Errorf("storing user message: %w", err)
-	}
-
-	turnStartedAt := time.Now()
 	// turnSpanID is used to correlate all events for this conversation turn in observability. It is the parent span for all API call spans in this turn.
 	turnSpanID := GenerateSpanID()
+	turnStartedAt := time.Now()
+	model := Model{Name: m.modelID, OLTPProvider: m.provider}
+	// Store the user message in the conversation history before processing to ensure it's included in the context
+	// for the first API call and in observability.
+	if err := m.handlers.HandleMessageEvent(ctx, MessageEvent{
+		Message:      Message{Role: RoleUser, Content: userInput, TurnID: turnID},
+		SessionScope: m.scope,
+		Model:        model,
+		TurnSpanID:   turnSpanID,
+		Kind:         CallKindInitial,
+		StartedAt:    turnStartedAt,
+	}); err != nil {
+		return "", fmt.Errorf("handling user message event: %w", err)
+	}
 	var totalUsage Usage
 	allToolCalls := make([]ToolCall, 0, 8) // pre-allocate to avoid repeated growth
 	var lastCallEndedAt time.Time
@@ -151,27 +122,9 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 		}
 		lastCallEndedAt = time.Now()
 
-		// Report API call with input, output, and tool calls
-		m.reportAPICall(APICallEvent{
-			TraceID:      turnID,
-			ParentSpanID: turnSpanID,
-			OLTPProvider: m.provider,
-			StartedAt:    callStartedAt,
-			EndedAt:      lastCallEndedAt,
-			Model:        m.modelID,
-			Kind:         kind,
-			Usage:        usage,
-			Input:        conversationInput,
-			Output:       formatAPICallOutput(response.Content, response.ToolCalls),
-			ToolCalls:    response.ToolCalls,
-			SessionID:    m.scope.SessionID(),
-			UserID:       m.scope.UserID(),
-		})
-
 		totalUsage = totalUsage.Add(usage)
 		allToolCalls = append(allToolCalls, response.ToolCalls...)
 		callCount++
-		kind = CallKindToolResult
 
 		// Store the assistant response in the conversation history,
 		// including tool calls as a special message type.
@@ -180,39 +133,83 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 		if strings.TrimSpace(storedResponse.Content) == "" && len(storedResponse.ToolCalls) > 0 {
 			storedResponse.Content = formatToolCallSummary(storedResponse.ToolCalls)
 		}
-		if err := m.store.AddMessage(ctx, storedResponse, m.scope); err != nil {
-			return "", fmt.Errorf("storing assistant response: %w", err)
+		if err := m.handlers.HandleMessageEvent(ctx, MessageEvent{
+			Message:      storedResponse,
+			SessionScope: m.scope,
+			Model:        model,
+			TurnSpanID:   turnSpanID,
+			Kind:         kind,
+			Usage:        usage,
+			StartedAt:    callStartedAt,
+			EndedAt:      lastCallEndedAt,
+			APICall: APICallEvent{
+				StartedAt: callStartedAt,
+				EndedAt:   lastCallEndedAt,
+				Input:     conversationInput,
+				Output:    formatAPICallOutput(response.Content, response.ToolCalls),
+			},
+		}); err != nil {
+			return "", fmt.Errorf("handling assistant message event: %w", err)
 		}
+
+		kind = CallKindToolResult
 
 		// If the model responded with content without tool calls, or if we've reached the maximum
 		// tool call iterations, end the conversation turn.
 		if len(response.ToolCalls) == 0 {
-			m.reportConversationTurn(TurnEvent{
-				TraceID:    turnID,
-				SpanID:     turnSpanID,
-				StartedAt:  turnStartedAt,
-				EndedAt:    time.Now(),
-				Model:      m.modelID,
-				TotalUsage: totalUsage,
-				CallCount:  callCount,
-				Input:      userInput,
-				Output:     response.Content,
-				ToolCalls:  allToolCalls,
-				SessionID:  m.scope.SessionID(),
-				UserID:     m.scope.UserID(),
-			})
+			if err := m.handlers.HandleTurnEvent(ctx, TurnEvent{
+				TurnID:       turnID,
+				TurnSpanID:   turnSpanID,
+				StartedAt:    turnStartedAt,
+				EndedAt:      time.Now(),
+				SessionScope: m.scope,
+				Model:        model,
+				TotalUsage:   totalUsage,
+				CallCount:    callCount,
+				Input:        userInput,
+				Output:       response.Content,
+				ToolCalls:    allToolCalls,
+			}); err != nil {
+				return "", fmt.Errorf("handling turn event: %w", err)
+			}
 			return response.Content, nil
+		}
+
+		// Emit tool call events before execution for observability.
+		for _, tc := range response.ToolCalls {
+			if err := m.handlers.HandleMessageEvent(ctx, MessageEvent{
+				Message: Message{
+					Role:      RoleTool,
+					ToolCalls: []ToolCall{tc},
+					TurnID:    turnID,
+				},
+				SessionScope: m.scope,
+				Model:        model,
+				TurnSpanID:   turnSpanID,
+				Kind:         CallKindToolCall,
+				StartedAt:    time.Now(),
+			}); err != nil {
+				return "", fmt.Errorf("handling tool call event: %w", err)
+			}
 		}
 
 		// If the model responded with tool calls, execute them and feed the results back
 		// to the model in the next iteration.
-		toolMsgs, err := m.executor.Execute(ctx, turnID, response.ToolCalls)
+		toolExecutions, err := m.executor.Execute(ctx, turnID, response.ToolCalls)
 		if err != nil {
 			return "", err
 		}
-		for _, msg := range toolMsgs {
-			if err := m.store.AddMessage(ctx, msg, m.scope); err != nil {
-				return "", fmt.Errorf("storing tool result: %w", err)
+		for _, exec := range toolExecutions {
+			if err := m.handlers.HandleMessageEvent(ctx, MessageEvent{
+				Message:      exec.Message,
+				SessionScope: m.scope,
+				Model:        model,
+				TurnSpanID:   turnSpanID,
+				Kind:         CallKindToolResult,
+				StartedAt:    exec.StartedAt,
+				EndedAt:      exec.EndedAt,
+			}); err != nil {
+				return "", fmt.Errorf("handling tool result event: %w", err)
 			}
 		}
 	}

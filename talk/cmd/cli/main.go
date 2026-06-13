@@ -97,8 +97,8 @@ func run(ctx context.Context, modelAlias, systemFile string, pprof bool) error {
 	mcpManager.ConnectAll(ctx)
 	defer mcpManager.Close()
 
-	// Create usage reporters based on configuration
-	var reporters []domain.UsageReporter
+	// Create message event handlers based on configuration.
+	var reporters []domain.MessageEventHandler
 
 	// Console reporter if enabled (default: true for backward compatibility)
 	if cfg.ConsoleUsageReporter {
@@ -121,6 +121,11 @@ func run(ctx context.Context, modelAlias, systemFile string, pprof bool) error {
 		reporters = append(reporters, &usage.ConsoleUsageReporter{})
 	}
 
+	handlers := domain.NewMessageEventHandlers([][]domain.MessageEventHandler{
+		{messages},
+		reporters,
+	})
+
 	manager := domain.NewConversationManager(domain.ConversationManagerConfig{
 		Client:             client,
 		ModelID:            modelAlias,
@@ -130,7 +135,7 @@ func run(ctx context.Context, modelAlias, systemFile string, pprof bool) error {
 		SessionBrowser:     browser,
 		PromptProvider:     pp,
 		Tools:              mcpManager.Tools,
-		Reporters:          reporters,
+		EventHandlers:      handlers,
 		MaxConcurrentTools: cfg.ToolsMaxConcurrent,
 		ContextFullTurns:   cfg.ContextFullTurns,
 	})

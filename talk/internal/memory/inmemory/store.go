@@ -12,6 +12,8 @@ import (
 type sessionData struct {
 	messages   []domain.Message
 	timestamps []time.Time
+	history    []domain.HistoryTurn
+	turnIndex  map[string]int
 	title      string
 	createdAt  time.Time
 }
@@ -35,24 +37,68 @@ func New() (*MessageRepository, *Browser) {
 }
 
 var _ domain.MessageStore = (*MessageRepository)(nil)
+var _ domain.MessageEventHandler = (*MessageRepository)(nil)
 var _ domain.SessionBrowser = (*Browser)(nil)
 
-// AddMessage appends a message to the given session.
+// HandleMessageEvent appends a message to the given session.
 // The session is materialized only when the first user message is added.
 // The title is set from the first user message content.
-func (r *MessageRepository) AddMessage(_ context.Context, msg domain.Message, scope domain.SessionScope) error {
+// Tool call events are skipped and not persisted.
+func (r *MessageRepository) HandleMessageEvent(_ context.Context, event domain.MessageEvent) error {
+	// Skip tool call events; only persist actual messages.
+	if event.Kind == domain.CallKindToolCall {
+		return nil
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	msg := event.Message
+	scope := event.SessionScope
+
 	sd, exists := r.sessions[scope.SessionID()]
 	if !exists {
 		if msg.Role != domain.RoleUser {
 			return nil
 		}
-		sd = &sessionData{title: msg.Content, createdAt: time.Now()}
+		sd = &sessionData{title: msg.Content, createdAt: time.Now(), turnIndex: make(map[string]int)}
 		r.sessions[scope.SessionID()] = sd
 	}
 	sd.messages = append(sd.messages, msg)
 	sd.timestamps = append(sd.timestamps, time.Now())
+	return nil
+}
+
+// HandleTurnEvent updates turn history for one completed turn.
+func (r *MessageRepository) HandleTurnEvent(_ context.Context, event domain.TurnEvent) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	sd, exists := r.sessions[event.SessionScope.SessionID()]
+	if !exists || event.TurnID == "" {
+		return nil
+	}
+
+	if sd.turnIndex == nil {
+		sd.turnIndex = make(map[string]int)
+	}
+
+	turn := domain.HistoryTurn{
+		TurnID:    event.TurnID,
+		Question:  event.Input,
+		Answer:    event.Output,
+		At:        event.EndedAt,
+		Model:     event.Model.Name,
+		CallCount: event.CallCount,
+	}
+
+	if idx, ok := sd.turnIndex[event.TurnID]; ok {
+		sd.history[idx] = turn
+		return nil
+	}
+
+	sd.turnIndex[event.TurnID] = len(sd.history)
+	sd.history = append(sd.history, turn)
 	return nil
 }
 
@@ -109,28 +155,11 @@ func (b *Browser) LoadHistoryTurnsFromSession(_ context.Context, sessionID strin
 	if !exists {
 		return nil, nil
 	}
-	var turns []domain.HistoryTurn
-	for i := 0; i < len(sd.messages); i++ {
-		if sd.messages[i].Role != domain.RoleUser {
-			continue
-		}
-		turn := domain.HistoryTurn{Question: sd.messages[i].Content, At: sd.timestamps[i], TurnID: sd.messages[i].TurnID}
-		// Find the last assistant message in this turn to capture the final
-		// response after tool calls.
-		for j := i + 1; j < len(sd.messages); j++ {
-			if sd.messages[j].Role == domain.RoleUser {
-				break
-			}
-			isCompletedReply := sd.messages[j].Role == domain.RoleAssistant &&
-				sd.messages[j].Content != "" &&
-				len(sd.messages[j].ToolCalls) == 0
-			if isCompletedReply {
-				turn.Answer = sd.messages[j].Content
-				i = j
-			}
-		}
-		turns = append(turns, turn)
+	if len(sd.history) == 0 {
+		return nil, nil
 	}
+	turns := make([]domain.HistoryTurn, len(sd.history))
+	copy(turns, sd.history)
 	return turns, nil
 }
 

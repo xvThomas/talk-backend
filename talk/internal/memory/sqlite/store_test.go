@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,17 +15,70 @@ import (
 var scope = domain.NewSessionScope("sess-1", "user1")
 
 type messageStore interface {
-	AddMessage(context.Context, domain.Message, domain.SessionScope) error
+	HandleMessageEvent(context.Context, domain.MessageEvent) error
+	HandleTurnEvent(context.Context, domain.TurnEvent) error
 }
 
 type messageCleaner interface {
 	ClearMessages(context.Context, string) error
 }
 
+var (
+	sqliteLastTurnIDBySession   = map[string]string{}
+	sqliteLastQuestionBySession = map[string]string{}
+	sqliteTurnCounter           int64
+)
+
 func mustAddMessage(t *testing.T, store messageStore, msg domain.Message, scope domain.SessionScope) {
 	t.Helper()
-	if err := store.AddMessage(context.Background(), msg, scope); err != nil {
-		t.Fatalf("AddMessage: %v", err)
+
+	if msg.TurnID == "" && msg.Role == domain.RoleUser {
+		sqliteTurnCounter++
+		msg.TurnID = fmt.Sprintf("turn-%d", sqliteTurnCounter)
+	}
+	if msg.TurnID == "" && msg.Role == domain.RoleAssistant {
+		msg.TurnID = sqliteLastTurnIDBySession[scope.SessionID()]
+	}
+
+	if err := store.HandleMessageEvent(context.Background(), domain.MessageEvent{
+		Message:      msg,
+		SessionScope: scope,
+	}); err != nil {
+		t.Fatalf("HandleMessageEvent: %v", err)
+	}
+
+	if msg.Role == domain.RoleUser {
+		sqliteLastTurnIDBySession[scope.SessionID()] = msg.TurnID
+		sqliteLastQuestionBySession[scope.SessionID()] = msg.Content
+		if err := store.HandleTurnEvent(context.Background(), domain.TurnEvent{
+			TurnID:       msg.TurnID,
+			TurnSpanID:   "span-1",
+			SessionScope: scope,
+			Model:        domain.Model{Name: "test-model"},
+			StartedAt:    time.Now(),
+			EndedAt:      time.Now(),
+			Input:        msg.Content,
+			Output:       "",
+			CallCount:    0,
+		}); err != nil {
+			t.Fatalf("HandleTurnEvent(user): %v", err)
+		}
+	}
+
+	if msg.Role == domain.RoleAssistant && msg.Content != "" && len(msg.ToolCalls) == 0 {
+		if err := store.HandleTurnEvent(context.Background(), domain.TurnEvent{
+			TurnID:       msg.TurnID,
+			TurnSpanID:   "span-1",
+			SessionScope: scope,
+			Model:        domain.Model{Name: "test-model"},
+			StartedAt:    time.Now(),
+			EndedAt:      time.Now(),
+			Input:        sqliteLastQuestionBySession[scope.SessionID()],
+			Output:       msg.Content,
+			CallCount:    1,
+		}); err != nil {
+			t.Fatalf("HandleTurnEvent: %v", err)
+		}
 	}
 }
 
@@ -513,7 +567,10 @@ func TestStore_AddMessage_AfterClose(t *testing.T) {
 	}
 	_ = s.Close()
 
-	if err := s.AddMessage(context.Background(), domain.Message{Role: domain.RoleUser, Content: "hello"}, scope); err == nil {
+	if err := s.HandleMessageEvent(context.Background(), domain.MessageEvent{
+		Message:      domain.Message{Role: domain.RoleUser, Content: "hello"},
+		SessionScope: scope,
+	}); err == nil {
 		t.Fatal("expected error on closed DB")
 	}
 	msgs, _ := s.AllMessages(context.Background(), scope.SessionID())

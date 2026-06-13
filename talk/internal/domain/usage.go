@@ -1,8 +1,11 @@
 package domain
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"sync"
 	"time"
 )
 
@@ -64,51 +67,125 @@ type CallKind string
 const (
 	// CallKindInitial is the first call of a turn (user → assistant).
 	CallKindInitial CallKind = "initial"
+	// CallKindToolCall is emitted before tool execution to notify about the tool invocation.
+	CallKindToolCall CallKind = "tool_call"
 	// CallKindToolResult is a subsequent call after tool execution.
 	CallKindToolResult CallKind = "tool_result"
 )
 
-// APICallEvent is emitted after each individual Complete() invocation.
+// APICallEvent describes a single LLM call payload.
 type APICallEvent struct {
-	TraceID      string       // Shared trace ID for the parent turn
-	ParentSpanID string       // SpanID of the parent conversation_turn span
-	OLTPProvider OLTPProvider // LLM provider (anthropic, openai, mistral, _other)
+	StartedAt time.Time // When the API call started
+	EndedAt   time.Time // When the API call completed
+	Input     string    // The input prompt for this API call
+	Output    string    // The response content from the model
+}
+
+// MessageEvent is emitted for each message produced during a turn.
+type MessageEvent struct {
+	Message
+	SessionScope SessionScope // Session and user identifier shared across the CLI session
+	Model        Model        // model identifier
+	TurnSpanID   string       // 8-byte turn span identifier
+	Kind         CallKind     // initial, tool_result
+	Usage        Usage        // usage metrics
 	StartedAt    time.Time    // When the API call started
 	EndedAt      time.Time    // When the API call completed
-	Model        string
-	Kind         CallKind
-	Usage        Usage
-	Input        string     // The input prompt for this API call
-	Output       string     // The response content from the model
-	ToolCalls    []ToolCall // Tool calls made in this API call (if any)
-	SessionID    string     // Session identifier shared across the CLI session
-	UserID       string     // User identifier ("anonymous" until auth is added)
+	APICall      APICallEvent // Input/output payload for this API call
 }
 
-// TurnEvent is emitted once at the end of a full Chat() turn (all calls aggregated).
+// TurnEvent is emitted once at the end of a full Chat() turn.
 type TurnEvent struct {
-	TraceID    string    // Trace ID shared with child API call spans
-	SpanID     string    // Span ID for this turn (parent of API call spans)
-	StartedAt  time.Time // When the conversation turn started
-	EndedAt    time.Time // When the conversation turn completed
-	Model      string
-	TotalUsage Usage
-	CallCount  int
-	Input      string     // The original user question
-	Output     string     // The final assistant response
-	ToolCalls  []ToolCall // All tool calls made during this turn
-	SessionID  string     // Session identifier shared across the CLI session
-	UserID     string     // User identifier ("anonymous" until auth is added)
+	TurnID       string       // Trace ID shared with child API call spans
+	TurnSpanID   string       // Span ID for this turn (parent of API call spans)
+	StartedAt    time.Time    // When the conversation turn started
+	EndedAt      time.Time    // When the conversation turn completed
+	SessionScope SessionScope // Session and user identifier shared across the CLI session
+	Model        Model
+	TotalUsage   Usage
+	CallCount    int
+	Input        string     // The original user question
+	Output       string     // The final assistant response
+	ToolCalls    []ToolCall // All tool calls made during this turn
 }
 
-// UsageReporter receives usage telemetry events.
-type UsageReporter interface {
-	OnAPICall(event APICallEvent)
-	OnConversationTurn(event TurnEvent)
+// MessageEventHandler receives message and turn events.
+type MessageEventHandler interface {
+	HandleMessageEvent(ctx context.Context, event MessageEvent) error
+	HandleTurnEvent(ctx context.Context, event TurnEvent) error
 }
 
-// NoOpUsageReporter silently discards all events.
-type NoOpUsageReporter struct{}
+// MessageEventHandlers executes handlers by sequential phases, with parallel
+// execution inside each phase.
+type MessageEventHandlers struct {
+	phases [][]MessageEventHandler
+}
 
-func (NoOpUsageReporter) OnAPICall(APICallEvent)       {}
-func (NoOpUsageReporter) OnConversationTurn(TurnEvent) {}
+// NewMessageEventHandlers creates a phased event handler pipeline.
+func NewMessageEventHandlers(phases [][]MessageEventHandler) *MessageEventHandlers {
+	return &MessageEventHandlers{phases: phases}
+}
+
+// HandleMessageEvent dispatches one message event through all phases.
+func (h *MessageEventHandlers) HandleMessageEvent(ctx context.Context, event MessageEvent) error {
+	return h.runPhases(func(handler MessageEventHandler) error {
+		return handler.HandleMessageEvent(ctx, event)
+	})
+}
+
+// HandleTurnEvent dispatches one turn event through all phases.
+func (h *MessageEventHandlers) HandleTurnEvent(ctx context.Context, event TurnEvent) error {
+	return h.runPhases(func(handler MessageEventHandler) error {
+		return handler.HandleTurnEvent(ctx, event)
+	})
+}
+
+func (h *MessageEventHandlers) runPhases(call func(handler MessageEventHandler) error) error {
+	if h == nil || len(h.phases) == 0 {
+		return nil
+	}
+
+	for _, phase := range h.phases {
+		if len(phase) == 0 {
+			continue
+		}
+
+		var (
+			mu  sync.Mutex
+			err error
+			wg  sync.WaitGroup
+		)
+
+		for _, handler := range phase {
+			h := handler
+			wg.Go(func() {
+				defer func() {
+					if panicErr := recover(); panicErr != nil {
+						mu.Lock()
+						err = errors.Join(err, errors.New("message event handler panic"))
+						mu.Unlock()
+					}
+				}()
+
+				if callErr := call(h); callErr != nil {
+					mu.Lock()
+					err = errors.Join(err, callErr)
+					mu.Unlock()
+				}
+			})
+		}
+
+		wg.Wait()
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// NoOpMessageEventHandler silently discards all events.
+type NoOpMessageEventHandler struct{}
+
+func (NoOpMessageEventHandler) HandleMessageEvent(context.Context, MessageEvent) error { return nil }
+func (NoOpMessageEventHandler) HandleTurnEvent(context.Context, TurnEvent) error       { return nil }
