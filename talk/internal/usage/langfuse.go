@@ -76,13 +76,13 @@ func NewLangfuseUsageReporter(config LangfuseConfig) *LangfuseUsageReporter {
 }
 
 // HandleMessageEvent buffers one message event.
-func (l *LangfuseUsageReporter) HandleMessageEvent(_ context.Context, event domain.MessageEvent) error {
-	if event.Message.Role != domain.RoleAssistant {
+func (l *LangfuseUsageReporter) HandleMessageEvent(_ context.Context, messageEvent domain.MessageEvent) error {
+	if messageEvent.Role != domain.RoleAssistant {
 		return nil
 	}
 
 	select {
-	case l.eventBuffer <- traceEvent{eventType: "message_event", data: event}:
+	case l.eventBuffer <- traceEvent{eventType: "message_event", data: messageEvent}:
 	case <-l.ctx.Done():
 		return nil
 	default:

@@ -267,7 +267,7 @@ func TestUsage_OnAPICallFiredPerComplete(t *testing.T) {
 
 	assistantEvents := make([]MessageEvent, 0, len(reporter.messageEvents))
 	for _, event := range reporter.messageEvents {
-		if event.Message.Role == RoleAssistant {
+		if event.Role == RoleAssistant {
 			assistantEvents = append(assistantEvents, event)
 		}
 	}
@@ -342,7 +342,7 @@ func TestUsage_NoToolCall_SingleAPICallEvent(t *testing.T) {
 
 	assistantEvents := make([]MessageEvent, 0, len(reporter.messageEvents))
 	for _, event := range reporter.messageEvents {
-		if event.Message.Role == RoleAssistant {
+		if event.Role == RoleAssistant {
 			assistantEvents = append(assistantEvents, event)
 		}
 	}

@@ -21,18 +21,18 @@ var _ domain.ToolCallEventHandler = (*ConsoleUsageReporter)(nil)
 // and tool invocation details for tool calls.
 //
 // Parameters:
-// - e: The MessageEvent containing details about the call and its token usage.
-func (ConsoleUsageReporter) HandleMessageEvent(_ context.Context, e domain.MessageEvent) error {
-	switch e.Kind {
+// - messageEvent: The MessageEvent containing details about the call and its token usage.
+func (ConsoleUsageReporter) HandleMessageEvent(_ context.Context, messageEvent domain.MessageEvent) error {
+	switch messageEvent.Kind {
 	case domain.CallKindInitial, domain.CallKindToolResult:
-		if e.Message.Role != domain.RoleAssistant {
+		if messageEvent.Role != domain.RoleAssistant {
 			return nil
 		}
 		fmt.Printf(
 			faint("  ↳ [api call] model=%-14s kind=%-12s in=%5d out=%5d cache_read=%5d cache_write=%5d\n"),
-			e.Model.Name, string(e.Kind),
-			e.Usage.InputTokens, e.Usage.OutputTokens,
-			e.Usage.CacheReadTokens, e.Usage.CacheWriteTokens,
+			messageEvent.Model.Name, string(messageEvent.Kind),
+			messageEvent.Usage.InputTokens, messageEvent.Usage.OutputTokens,
+			messageEvent.Usage.CacheReadTokens, messageEvent.Usage.CacheWriteTokens,
 		)
 	}
 

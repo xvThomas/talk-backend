@@ -89,36 +89,36 @@ func intValue(i int64) OTLPValue {
 // Mapping functions from domain events to OpenTelemetry format
 
 // apiCallToOTLP converts a domain.MessageEvent to OpenTelemetry format
-func (l *LangfuseUsageReporter) apiCallToOTLP(event domain.MessageEvent) (*OTLPTrace, error) {
-	traceID := event.Message.TurnID
+func (l *LangfuseUsageReporter) apiCallToOTLP(messageEvent domain.MessageEvent) (*OTLPTrace, error) {
+	traceID := messageEvent.TurnID
 	spanID := generateSpanID()
-	parentSpanID := event.TurnSpanID
+	parentSpanID := messageEvent.TurnSpanID
 
 	// OTLPProvider constants are defined to match OTel GenAI semantic conventions directly.
-	system := string(event.Model.OLTPProvider)
+	system := string(messageEvent.Model.OLTPProvider)
 
 	attributes := []OTLPAttribute{
 		// GenAI semantic conventions
 		{Key: "gen_ai.provider.name", Value: stringValue(system)},
-		{Key: "gen_ai.request.model", Value: stringValue(event.Model.Name)},
-		{Key: "gen_ai.response.model", Value: stringValue(event.Model.Name)},
-		{Key: "gen_ai.operation.name", Value: stringValue(string(event.Kind))},
+		{Key: "gen_ai.request.model", Value: stringValue(messageEvent.Model.Name)},
+		{Key: "gen_ai.response.model", Value: stringValue(messageEvent.Model.Name)},
+		{Key: "gen_ai.operation.name", Value: stringValue(string(messageEvent.Kind))},
 
 		// Input and output for Langfuse
-		{Key: "gen_ai.prompt", Value: stringValue(event.APICall.Input)},
-		{Key: "gen_ai.completion", Value: stringValue(event.APICall.Output)},
+		{Key: "gen_ai.prompt", Value: stringValue(messageEvent.APICall.Input)},
+		{Key: "gen_ai.completion", Value: stringValue(messageEvent.APICall.Output)},
 
 		// Langfuse-specific input/output
-		{Key: "langfuse.observation.input", Value: stringValue(event.APICall.Input)},
-		{Key: "langfuse.observation.output", Value: stringValue(event.APICall.Output)},
+		{Key: "langfuse.observation.input", Value: stringValue(messageEvent.APICall.Input)},
+		{Key: "langfuse.observation.output", Value: stringValue(messageEvent.APICall.Output)},
 
 		// Usage information
-		{Key: "gen_ai.usage.input_tokens", Value: intValue(event.Usage.InputTokens)},
-		{Key: "gen_ai.usage.output_tokens", Value: intValue(event.Usage.OutputTokens)},
+		{Key: "gen_ai.usage.input_tokens", Value: intValue(messageEvent.Usage.InputTokens)},
+		{Key: "gen_ai.usage.output_tokens", Value: intValue(messageEvent.Usage.OutputTokens)},
 
 		// Anthropic-specific cache information
-		{Key: "gen_ai.usage.cache_read_tokens", Value: intValue(event.Usage.CacheReadTokens)},
-		{Key: "gen_ai.usage.cache_write_tokens", Value: intValue(event.Usage.CacheWriteTokens)},
+		{Key: "gen_ai.usage.cache_read_tokens", Value: intValue(messageEvent.Usage.CacheReadTokens)},
+		{Key: "gen_ai.usage.cache_write_tokens", Value: intValue(messageEvent.Usage.CacheWriteTokens)},
 
 		// Langfuse-specific attributes
 		{Key: "langfuse.observation.type", Value: stringValue("generation")},
@@ -126,8 +126,8 @@ func (l *LangfuseUsageReporter) apiCallToOTLP(event domain.MessageEvent) (*OTLPT
 	}
 
 	// Add tool call information if present
-	if len(event.Message.ToolCalls) > 0 {
-		toolCallsJSON, _ := json.Marshal(event.Message.ToolCalls)
+	if len(messageEvent.ToolCalls) > 0 {
+		toolCallsJSON, _ := json.Marshal(messageEvent.ToolCalls)
 		attributes = append(attributes, OTLPAttribute{
 			Key:   "langfuse.observation.metadata.tool_calls",
 			Value: stringValue(string(toolCallsJSON)),
@@ -135,7 +135,7 @@ func (l *LangfuseUsageReporter) apiCallToOTLP(event domain.MessageEvent) (*OTLPT
 
 		// Add tool names for easier filtering
 		var toolNames []string
-		for _, tc := range event.Message.ToolCalls {
+		for _, tc := range messageEvent.ToolCalls {
 			toolNames = append(toolNames, tc.Name)
 		}
 		toolNamesJSON, _ := json.Marshal(toolNames)
@@ -149,10 +149,10 @@ func (l *LangfuseUsageReporter) apiCallToOTLP(event domain.MessageEvent) (*OTLPT
 		TraceID:           traceID,
 		SpanID:            spanID,
 		ParentSpanID:      parentSpanID,
-		Name:              fmt.Sprintf("llm_%s", event.Kind),
+		Name:              fmt.Sprintf("llm_%s", messageEvent.Kind),
 		Kind:              3, // SPAN_KIND_CLIENT
-		StartTimeUnixNano: strconv.FormatInt(event.StartedAt.UnixNano(), 10),
-		EndTimeUnixNano:   strconv.FormatInt(event.EndedAt.UnixNano(), 10),
+		StartTimeUnixNano: strconv.FormatInt(messageEvent.StartedAt.UnixNano(), 10),
+		EndTimeUnixNano:   strconv.FormatInt(messageEvent.EndedAt.UnixNano(), 10),
 		Attributes:        attributes,
 		Status: OTLPStatus{
 			Code: 1, // STATUS_CODE_OK
@@ -163,38 +163,38 @@ func (l *LangfuseUsageReporter) apiCallToOTLP(event domain.MessageEvent) (*OTLPT
 }
 
 // conversationTurnToOTLP converts a domain.TurnEvent to OpenTelemetry format
-func (l *LangfuseUsageReporter) conversationTurnToOTLP(event domain.TurnEvent) (*OTLPTrace, error) {
-	traceID := event.TurnID
-	spanID := event.TurnSpanID
+func (l *LangfuseUsageReporter) conversationTurnToOTLP(turnEvent domain.TurnEvent) (*OTLPTrace, error) {
+	traceID := turnEvent.TurnID
+	spanID := turnEvent.TurnSpanID
 
 	attributes := []OTLPAttribute{
 		// Trace-level attributes (Langfuse OTLP mapping)
 		{Key: "langfuse.trace.name", Value: stringValue("conversation_turn")},
-		{Key: "langfuse.session.id", Value: stringValue(event.SessionScope.SessionID())},
-		{Key: "langfuse.user.id", Value: stringValue(event.SessionScope.UserID())},
-		{Key: "langfuse.trace.input", Value: stringValue(event.Input)},
-		{Key: "langfuse.trace.output", Value: stringValue(event.Output)},
+		{Key: "langfuse.session.id", Value: stringValue(turnEvent.SessionScope.SessionID())},
+		{Key: "langfuse.user.id", Value: stringValue(turnEvent.SessionScope.UserID())},
+		{Key: "langfuse.trace.input", Value: stringValue(turnEvent.Input)},
+		{Key: "langfuse.trace.output", Value: stringValue(turnEvent.Output)},
 
 		// Model information
-		{Key: "gen_ai.request.model", Value: stringValue(event.Model.Name)},
-		{Key: "gen_ai.response.model", Value: stringValue(event.Model.Name)},
+		{Key: "gen_ai.request.model", Value: stringValue(turnEvent.Model.Name)},
+		{Key: "gen_ai.response.model", Value: stringValue(turnEvent.Model.Name)},
 
 		// Input and output for Langfuse
-		{Key: "gen_ai.prompt", Value: stringValue(event.Input)},
-		{Key: "gen_ai.completion", Value: stringValue(event.Output)},
+		{Key: "gen_ai.prompt", Value: stringValue(turnEvent.Input)},
+		{Key: "gen_ai.completion", Value: stringValue(turnEvent.Output)},
 
 		// Langfuse observation-level input/output
-		{Key: "langfuse.observation.input", Value: stringValue(event.Input)},
-		{Key: "langfuse.observation.output", Value: stringValue(event.Output)},
+		{Key: "langfuse.observation.input", Value: stringValue(turnEvent.Input)},
+		{Key: "langfuse.observation.output", Value: stringValue(turnEvent.Output)},
 
 		// Aggregated usage information
-		{Key: "gen_ai.usage.input_tokens", Value: intValue(event.TotalUsage.InputTokens)},
-		{Key: "gen_ai.usage.output_tokens", Value: intValue(event.TotalUsage.OutputTokens)},
-		{Key: "gen_ai.usage.cache_read_tokens", Value: intValue(event.TotalUsage.CacheReadTokens)},
-		{Key: "gen_ai.usage.cache_write_tokens", Value: intValue(event.TotalUsage.CacheWriteTokens)},
+		{Key: "gen_ai.usage.input_tokens", Value: intValue(turnEvent.TotalUsage.InputTokens)},
+		{Key: "gen_ai.usage.output_tokens", Value: intValue(turnEvent.TotalUsage.OutputTokens)},
+		{Key: "gen_ai.usage.cache_read_tokens", Value: intValue(turnEvent.TotalUsage.CacheReadTokens)},
+		{Key: "gen_ai.usage.cache_write_tokens", Value: intValue(turnEvent.TotalUsage.CacheWriteTokens)},
 
 		// Turn-specific information
-		{Key: "call_count", Value: intValue(int64(event.CallCount))},
+		{Key: "call_count", Value: intValue(int64(turnEvent.CallCount))},
 
 		// Langfuse-specific attributes
 		{Key: "langfuse.observation.type", Value: stringValue("span")},
@@ -202,8 +202,8 @@ func (l *LangfuseUsageReporter) conversationTurnToOTLP(event domain.TurnEvent) (
 	}
 
 	// Add tool call information if present
-	if len(event.ToolCalls) > 0 {
-		toolCallsJSON, _ := json.Marshal(event.ToolCalls)
+	if len(turnEvent.ToolCalls) > 0 {
+		toolCallsJSON, _ := json.Marshal(turnEvent.ToolCalls)
 		attributes = append(attributes, OTLPAttribute{
 			Key:   "langfuse.observation.metadata.tool_calls",
 			Value: stringValue(string(toolCallsJSON)),
@@ -211,7 +211,7 @@ func (l *LangfuseUsageReporter) conversationTurnToOTLP(event domain.TurnEvent) (
 
 		// Add tool names for easier filtering
 		var toolNames []string
-		for _, tc := range event.ToolCalls {
+		for _, tc := range turnEvent.ToolCalls {
 			toolNames = append(toolNames, tc.Name)
 		}
 		toolNamesJSON, _ := json.Marshal(toolNames)
@@ -223,7 +223,7 @@ func (l *LangfuseUsageReporter) conversationTurnToOTLP(event domain.TurnEvent) (
 		// Add tool count
 		attributes = append(attributes, OTLPAttribute{
 			Key:   "langfuse.observation.metadata.tool_count",
-			Value: intValue(int64(len(event.ToolCalls))),
+			Value: intValue(int64(len(turnEvent.ToolCalls))),
 		})
 	}
 
@@ -232,8 +232,8 @@ func (l *LangfuseUsageReporter) conversationTurnToOTLP(event domain.TurnEvent) (
 		SpanID:            spanID,
 		Name:              "conversation_turn",
 		Kind:              1, // SPAN_KIND_INTERNAL
-		StartTimeUnixNano: strconv.FormatInt(event.StartedAt.UnixNano(), 10),
-		EndTimeUnixNano:   strconv.FormatInt(event.EndedAt.UnixNano(), 10),
+		StartTimeUnixNano: strconv.FormatInt(turnEvent.StartedAt.UnixNano(), 10),
+		EndTimeUnixNano:   strconv.FormatInt(turnEvent.EndedAt.UnixNano(), 10),
 		Attributes:        attributes,
 		Status: OTLPStatus{
 			Code: 1, // STATUS_CODE_OK
