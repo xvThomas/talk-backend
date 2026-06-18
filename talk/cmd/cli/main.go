@@ -140,8 +140,10 @@ func run(ctx context.Context, modelAlias, systemFile string, pprof bool) error {
 		ContextFullTurns:   cfg.ContextFullTurns,
 	})
 
-	history := NewHistory(historyFilePath())
-	lr := NewLineReader(history)
+	lr, err := NewGoPromptReader(historyFilePath())
+	if err != nil {
+		return fmt.Errorf("initializing prompt reader: %w", err)
+	}
 
 	app := &App{
 		Printer:      stdPrinter{},
@@ -178,7 +180,6 @@ func run(ctx context.Context, modelAlias, systemFile string, pprof bool) error {
 			app.handleSlashCommand(ctx, input)
 			continue
 		}
-		history.Add(input)
 
 		answer, err := manager.Chat(ctx, input)
 		if err != nil {
@@ -207,9 +208,11 @@ func defaultSystemPromptPath() string {
 
 func historyFilePath() string {
 	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".talks_history")
+		dir := filepath.Join(home, ".talk")
+		_ = os.MkdirAll(dir, 0o700)
+		return filepath.Join(dir, "history")
 	}
-	return ".talks_history"
+	return "history"
 }
 
 func storeDBPath() string {

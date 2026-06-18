@@ -15,8 +15,8 @@ func TestDefaultSystemPromptPath(t *testing.T) {
 
 func TestHistoryFilePath(t *testing.T) {
 	p := historyFilePath()
-	if !strings.HasSuffix(p, ".talks_history") {
-		t.Errorf("expected path ending with .talks_history, got: %s", p)
+	if !strings.HasSuffix(p, filepath.Join(".talk", "history")) {
+		t.Errorf("expected path ending with .talk/history, got: %s", p)
 	}
 }
 
