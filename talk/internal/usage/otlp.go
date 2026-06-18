@@ -100,8 +100,8 @@ func (l *LangfuseUsageReporter) apiCallToOTLP(messageEvent domain.MessageEvent) 
 	attributes := []OTLPAttribute{
 		// GenAI semantic conventions
 		{Key: "gen_ai.provider.name", Value: stringValue(system)},
-		{Key: "gen_ai.request.model", Value: stringValue(messageEvent.Model.Name)},
-		{Key: "gen_ai.response.model", Value: stringValue(messageEvent.Model.Name)},
+		{Key: "gen_ai.request.model", Value: stringValue(messageEvent.Model.APIModelID)},
+		{Key: "gen_ai.response.model", Value: stringValue(messageEvent.Model.APIModelID)},
 		{Key: "gen_ai.operation.name", Value: stringValue(string(messageEvent.Kind))},
 
 		// Input and output for Langfuse
