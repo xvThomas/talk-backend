@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/mcp"
+	"github.com/xvThomas/talk-backend/talk/internal/domain"
+	"github.com/xvThomas/talk-backend/talk/internal/mcp"
 )
 
 // spyPrinter captures all output for assertions in tests.

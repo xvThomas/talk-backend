@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
+	"github.com/xvThomas/talk-backend/talk/internal/domain"
 )
 
 // OpenTelemetry OTLP structures following the standard specification

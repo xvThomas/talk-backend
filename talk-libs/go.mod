@@ -1,4 +1,4 @@
-module github.com/xvThomas/LLMClientWrapper/talk-libs
+module github.com/xvThomas/talk-backend/talk-libs
 
 go 1.25.0
 

@@ -1,6 +1,6 @@
-# LLMClientWrapper
+# talk-backend
 
-[![CI](https://github.com/xvThomas/LLMClientWrapper/actions/workflows/ci.yml/badge.svg)](https://github.com/xvThomas/LLMClientWrapper/actions/workflows/ci.yml)
+[![CI](https://github.com/xvThomas/talk-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/xvThomas/talk-backend/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/xvThomas/LLMClientWrapper/branch/main/graph/badge.svg)](https://codecov.io/gh/xvThomas/LLMClientWrapper)
 
 A Go monorepo providing a CLI that routes questions to Anthropic, OpenAI or OpenAI-compatible models (Mistral) through a unified interface, plus standalone MCP (Model Context Protocol) tool servers.
@@ -49,8 +49,8 @@ The project uses **Go workspaces** (`go.work`) with five independent modules:
 ### 1. Clone & build
 
 ```bash
-git clone https://github.com/xvThomas/LLMClientWrapper.git
-cd LLMClientWrapper
+git clone https://github.com/xvThomas/talk-backend.git
+cd talk-backend
 make build
 ```
 

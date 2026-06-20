@@ -3,7 +3,7 @@ package router
 import (
 	"testing"
 
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/config"
+	"github.com/xvThomas/talk-backend/talk/internal/config"
 )
 
 func TestRouter_UnknownModelReturnsError(t *testing.T) {

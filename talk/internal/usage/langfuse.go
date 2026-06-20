@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/version"
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
+	"github.com/xvThomas/talk-backend/talk-libs/version"
+	"github.com/xvThomas/talk-backend/talk/internal/domain"
 )
 
 // LangfuseUsageReporter implements domain.MessageEventHandler by sending traces to Langfuse

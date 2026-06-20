@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
+	"github.com/xvThomas/talk-backend/talk/internal/domain"
 )
 
 func (a *App) cmdSession(ctx context.Context, args string) {

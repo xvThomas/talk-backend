@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/ratelimit"
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
+	"github.com/xvThomas/talk-backend/mcp-owm/internal/ratelimit"
+	"github.com/xvThomas/talk-backend/talk-libs/mcpserver"
 )
 
 // ReverseGeocodingToolInput is the typed input for ReverseGeocodingTool.

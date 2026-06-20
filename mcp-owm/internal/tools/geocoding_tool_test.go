@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/ratelimit"
+	"github.com/xvThomas/talk-backend/mcp-owm/internal/ratelimit"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/testutils"
+	"github.com/xvThomas/talk-backend/talk-libs/testutils"
 
 	"github.com/joho/godotenv"
 )

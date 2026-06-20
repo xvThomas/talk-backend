@@ -1,10 +1,10 @@
-module github.com/xvThomas/LLMClientWrapper/mcp-ign-nav
+module github.com/xvThomas/talk-backend/mcp-ign-nav
 
 go 1.25.0
 
 require (
 	github.com/joho/godotenv v1.5.1
-	github.com/xvThomas/LLMClientWrapper/talk-libs v0.0.0
+	github.com/xvThomas/talk-backend/talk-libs v0.0.0
 	golang.org/x/time v0.15.0
 )
 
@@ -19,4 +19,4 @@ require (
 	golang.org/x/sys v0.42.0 // indirect
 )
 
-replace github.com/xvThomas/LLMClientWrapper/talk-libs => ../talk-libs
+replace github.com/xvThomas/talk-backend/talk-libs => ../talk-libs

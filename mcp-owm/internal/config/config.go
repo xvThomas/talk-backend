@@ -8,7 +8,7 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
+	"github.com/xvThomas/talk-backend/talk-libs/mcpserver"
 )
 
 const defaultRateLimitPerMinute = 60

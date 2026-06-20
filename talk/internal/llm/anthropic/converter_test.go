@@ -7,7 +7,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
+	"github.com/xvThomas/talk-backend/talk/internal/domain"
 )
 
 func TestToSDKMessages_Simple(t *testing.T) {

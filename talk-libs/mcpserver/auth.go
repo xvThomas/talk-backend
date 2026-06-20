@@ -9,7 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/logger"
+	"github.com/xvThomas/talk-backend/talk-libs/logger"
 )
 
 // buildAuthMiddleware returns the HTTP middleware to apply based on the

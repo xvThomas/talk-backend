@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/logger"
+	"github.com/xvThomas/talk-backend/talk-libs/logger"
 	"golang.org/x/time/rate"
 )
 

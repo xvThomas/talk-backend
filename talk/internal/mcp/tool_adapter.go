@@ -7,7 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
+	"github.com/xvThomas/talk-backend/talk/internal/domain"
 )
 
 // mcpToolAdapter adapts an MCP remote tool into the domain.Tool interface.

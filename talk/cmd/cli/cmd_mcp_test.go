@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/mcp"
+	"github.com/xvThomas/talk-backend/talk/internal/mcp"
 )
 
 func TestCmdMCPList_Empty(t *testing.T) {

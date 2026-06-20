@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
+	"github.com/xvThomas/talk-backend/talk-libs/mcpserver"
 	"golang.org/x/time/rate"
 )
 

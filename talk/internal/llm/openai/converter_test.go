@@ -7,7 +7,7 @@ import (
 
 	"github.com/openai/openai-go"
 
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
+	"github.com/xvThomas/talk-backend/talk/internal/domain"
 )
 
 func TestToSDKMessages_WithSystemPrompt(t *testing.T) {

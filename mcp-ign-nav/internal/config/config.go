@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
+	"github.com/xvThomas/talk-backend/talk-libs/mcpserver"
 )
 
 // ServerEnv holds the environment configuration for the mcp-ign-nav server.

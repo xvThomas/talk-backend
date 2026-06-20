@@ -3,7 +3,7 @@ package config
 import (
 	"github.com/joho/godotenv"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
+	"github.com/xvThomas/talk-backend/talk-libs/mcpserver"
 )
 
 // ServerEnv holds the environment configuration specific to this MCP server.

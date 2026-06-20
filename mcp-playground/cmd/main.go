@@ -3,12 +3,12 @@ package main
 import (
 	"os"
 
-	"github.com/xvThomas/LLMClientWrapper/mcp-playground/internal/config"
-	"github.com/xvThomas/LLMClientWrapper/mcp-playground/internal/prompts"
-	"github.com/xvThomas/LLMClientWrapper/mcp-playground/internal/tools"
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/logger"
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/version"
+	"github.com/xvThomas/talk-backend/mcp-playground/internal/config"
+	"github.com/xvThomas/talk-backend/mcp-playground/internal/prompts"
+	"github.com/xvThomas/talk-backend/mcp-playground/internal/tools"
+	"github.com/xvThomas/talk-backend/talk-libs/logger"
+	"github.com/xvThomas/talk-backend/talk-libs/mcpserver"
+	"github.com/xvThomas/talk-backend/talk-libs/version"
 )
 
 func main() {

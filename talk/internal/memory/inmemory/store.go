@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
+	"github.com/xvThomas/talk-backend/talk/internal/domain"
 )
 
 // sessionData holds the messages and metadata for a single session.

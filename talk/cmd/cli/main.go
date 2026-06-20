@@ -12,14 +12,14 @@ import (
 
 	_ "net/http/pprof"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/version"
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/config"
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/llm/router"
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/mcp"
-	sqlitestore "github.com/xvThomas/LLMClientWrapper/talk/internal/memory/sqlite"
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/prompt"
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/usage"
+	"github.com/xvThomas/talk-backend/talk-libs/version"
+	"github.com/xvThomas/talk-backend/talk/internal/config"
+	"github.com/xvThomas/talk-backend/talk/internal/domain"
+	"github.com/xvThomas/talk-backend/talk/internal/llm/router"
+	"github.com/xvThomas/talk-backend/talk/internal/mcp"
+	sqlitestore "github.com/xvThomas/talk-backend/talk/internal/memory/sqlite"
+	"github.com/xvThomas/talk-backend/talk/internal/prompt"
+	"github.com/xvThomas/talk-backend/talk/internal/usage"
 
 	"github.com/spf13/cobra"
 )

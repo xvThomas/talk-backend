@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/xvThomas/LLMClientWrapper/mcp-owm/internal/ratelimit"
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
+	"github.com/xvThomas/talk-backend/mcp-owm/internal/ratelimit"
+	"github.com/xvThomas/talk-backend/talk-libs/mcpserver"
 )
 
 // DailyForecastToolInput is the typed input for DailyForecastTool.

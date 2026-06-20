@@ -1,6 +1,6 @@
 package prompts
 
-import "github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
+import "github.com/xvThomas/talk-backend/talk-libs/mcpserver"
 
 // CurrentWeather instructs the LLM to provide a structured weather briefing.
 var CurrentWeather = mcpserver.Prompt{

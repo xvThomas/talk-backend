@@ -3,7 +3,7 @@ package tools
 import (
 	"context"
 
-	"github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
+	"github.com/xvThomas/talk-backend/talk-libs/mcpserver"
 )
 
 // SumToolInput holds the two integers to add.

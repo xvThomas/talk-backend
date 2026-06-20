@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/xvThomas/LLMClientWrapper/mcp-playground/internal/config"
+	"github.com/xvThomas/talk-backend/mcp-playground/internal/config"
 )
 
 func TestBuildApp_Minimal(t *testing.T) {

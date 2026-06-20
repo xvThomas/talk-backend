@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/domain"
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/mcp"
+	"github.com/xvThomas/talk-backend/talk/internal/domain"
+	"github.com/xvThomas/talk-backend/talk/internal/mcp"
 )
 
 // ModelSwitcher builds LLM clients by model alias.

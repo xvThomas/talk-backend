@@ -3,7 +3,7 @@ package version
 import "runtime/debug"
 
 // Version is the application version. It is resolved in order:
-// 1. Build-time injection via: go build -ldflags "-X github.com/xvThomas/LLMClientWrapper/talk-libs/version.Version=v1.2.3"
+// 1. Build-time injection via: go build -ldflags "-X github.com/xvThomas/talk-backend/talk-libs/version.Version=v1.2.3"
 // 2. VCS tag embedded by Go at build time (requires a git tag on the module)
 // 3. VCS revision (short commit hash)
 // 4. "dev" as fallback

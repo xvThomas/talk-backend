@@ -1,6 +1,6 @@
 package prompts
 
-import "github.com/xvThomas/LLMClientWrapper/talk-libs/mcpserver"
+import "github.com/xvThomas/talk-backend/talk-libs/mcpserver"
 
 // Sum instructs the LLM to use the sum tool for adding two integers.
 var Sum = mcpserver.Prompt{

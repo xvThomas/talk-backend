@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/xvThomas/LLMClientWrapper/talk/internal/mcp"
+	"github.com/xvThomas/talk-backend/talk/internal/mcp"
 )
 
 func (a *App) cmdMCP(ctx context.Context, args string) {
