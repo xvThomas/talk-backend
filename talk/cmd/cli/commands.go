@@ -37,7 +37,7 @@ func (a *App) cmdHelp() {
 	a.Println(emphasize("Commands:"))
 	a.Println(faint("  /help                                — show this help"))
 	a.Println(faint("  /model                               — switch models"))
-	a.Println(faint("  /thinking [off|low|medium|high]      — set reasoning level"))
+	a.Println(faint("  /thinking                            — set reasoning level"))
 	a.Println(faint("  /memory                              — show current session history"))
 	a.Println(faint("  /session [list|new|remove]           — manage sessions"))
 	a.Println(faint("  /prompt                              — show system prompt"))
