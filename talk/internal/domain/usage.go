@@ -49,6 +49,7 @@ type Usage struct {
 	OutputTokens     int64
 	CacheReadTokens  int64 // tokens served from prompt cache
 	CacheWriteTokens int64 // tokens written to prompt cache (Anthropic only)
+	ReasoningTokens  int64 // tokens used for reasoning/thinking
 }
 
 // Add returns the sum of two Usage values.
@@ -58,6 +59,7 @@ func (u Usage) Add(other Usage) Usage {
 		OutputTokens:     u.OutputTokens + other.OutputTokens,
 		CacheReadTokens:  u.CacheReadTokens + other.CacheReadTokens,
 		CacheWriteTokens: u.CacheWriteTokens + other.CacheWriteTokens,
+		ReasoningTokens:  u.ReasoningTokens + other.ReasoningTokens,
 	}
 }
 

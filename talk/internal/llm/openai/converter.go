@@ -88,6 +88,7 @@ func fromSDKResponse(resp *openai.ChatCompletion) (*domain.Message, domain.Usage
 		InputTokens:     resp.Usage.PromptTokens,
 		OutputTokens:    resp.Usage.CompletionTokens,
 		CacheReadTokens: resp.Usage.PromptTokensDetails.CachedTokens,
+		ReasoningTokens: resp.Usage.CompletionTokensDetails.ReasoningTokens,
 	}
 	if len(resp.Choices) == 0 {
 		return &domain.Message{Role: domain.RoleAssistant}, usage

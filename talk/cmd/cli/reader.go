@@ -23,6 +23,7 @@ type Reader interface {
 var topLevelCommandSuggestions = []prompt.Suggest{
 	{Text: "/help", Description: "show available commands"},
 	{Text: "/model", Description: "switch model"},
+	{Text: "/thinking", Description: "set reasoning level"},
 	{Text: "/memory", Description: "show current session history"},
 	{Text: "/session", Description: "manage sessions"},
 	{Text: "/prompt", Description: "show system prompt"},
@@ -97,6 +98,7 @@ func (gr *GoPromptReader) ReadLine(promptText string) (string, error) {
 		gr.complete,
 		prompt.OptionPrefix(stripANSI(promptText)),
 		prompt.OptionHistory(gr.historyEntries),
+		prompt.OptionMaxSuggestion(10),
 		prompt.OptionAddKeyBind(
 			prompt.KeyBind{Key: prompt.ControlA, Fn: prompt.GoLineBeginning},
 			prompt.KeyBind{Key: prompt.ControlE, Fn: prompt.GoLineEnd},

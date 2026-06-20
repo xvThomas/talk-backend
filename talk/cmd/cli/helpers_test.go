@@ -162,7 +162,7 @@ func (r *fakeRouter) Get(_ string) (domain.LlmClient, error) {
 // fakeLlmClient implements domain.LlmClient as a no-op.
 type fakeLlmClient struct{}
 
-func (fakeLlmClient) Complete(_ context.Context, _ string, _ []domain.Message, _ []domain.Tool) (*domain.Message, domain.Usage, error) {
+func (fakeLlmClient) Complete(_ context.Context, _ string, _ []domain.Message, _ []domain.Tool, _ domain.CompletionOptions) (*domain.Message, domain.Usage, error) {
 	return &domain.Message{Role: "assistant", Content: "fake"}, domain.Usage{}, nil
 }
 

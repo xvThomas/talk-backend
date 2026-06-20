@@ -28,11 +28,19 @@ func (ConsoleUsageReporter) HandleMessageEvent(_ context.Context, messageEvent d
 		if messageEvent.Role != domain.RoleAssistant {
 			return nil
 		}
+		if messageEvent.Thinking != "" {
+			fmt.Printf("\n%s %s\n", "\033[36mThinking:\033[0m", messageEvent.Thinking)
+		}
+		reasoningInfo := ""
+		if messageEvent.Usage.ReasoningTokens > 0 {
+			reasoningInfo = fmt.Sprintf(" reasoning=%5d", messageEvent.Usage.ReasoningTokens)
+		}
 		fmt.Printf(
-			faint("  ↳ [api call] model=%-14s kind=%-12s in=%5d out=%5d cache_read=%5d cache_write=%5d\n"),
+			faint("  ↳ [api call] model=%-14s kind=%-12s in=%5d out=%5d cache_read=%5d cache_write=%5d%s\n"),
 			messageEvent.Model.Name, string(messageEvent.Kind),
 			messageEvent.Usage.InputTokens, messageEvent.Usage.OutputTokens,
 			messageEvent.Usage.CacheReadTokens, messageEvent.Usage.CacheWriteTokens,
+			reasoningInfo,
 		)
 	}
 
@@ -55,11 +63,16 @@ func (ConsoleUsageReporter) HandleToolCallEvent(_ context.Context, e domain.Tool
 // Parameters:
 // - e: The TurnEvent containing details about the conversation turn and its token usage.
 func (ConsoleUsageReporter) HandleTurnEvent(_ context.Context, e domain.TurnEvent) error {
+	reasoningInfo := ""
+	if e.TotalUsage.ReasoningTokens > 0 {
+		reasoningInfo = fmt.Sprintf(" reasoning=%5d", e.TotalUsage.ReasoningTokens)
+	}
 	fmt.Printf(
-		faint("  ↳ [turn]  model=%-14s calls=%d  total_in=%5d total_out=%5d cache_read=%5d cache_write=%5d\n"),
+		faint("  ↳ [turn]  model=%-14s calls=%d  total_in=%5d total_out=%5d cache_read=%5d cache_write=%5d%s\n"),
 		e.Model.Name, e.CallCount,
 		e.TotalUsage.InputTokens, e.TotalUsage.OutputTokens,
 		e.TotalUsage.CacheReadTokens, e.TotalUsage.CacheWriteTokens,
+		reasoningInfo,
 	)
 
 	return nil

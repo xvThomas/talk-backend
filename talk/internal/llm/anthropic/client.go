@@ -12,24 +12,45 @@ import (
 
 // AnthropicClient implements domain.LlmClient using the Anthropic API.
 type AnthropicClient struct {
-	sdk     *anthropic.Client
-	modelID string
+	sdk   *anthropic.Client
+	model domain.Model
 }
 
 var _ domain.LlmClient = (*AnthropicClient)(nil) // ensure AnthropicClient implements domain.LlmClient
 
 // NewAnthropicClient creates an Anthropic Client.
-func NewAnthropicClient(apiKey, modelID string) *AnthropicClient {
+func NewAnthropicClient(apiKey string, model domain.Model) *AnthropicClient {
 	sdk := anthropic.NewClient(option.WithAPIKey(apiKey))
-	return &AnthropicClient{sdk: &sdk, modelID: modelID}
+	return &AnthropicClient{sdk: &sdk, model: model}
 }
 
 // Complete sends the conversation to Anthropic and returns the assistant response with token usage.
-func (c *AnthropicClient) Complete(ctx context.Context, systemPrompt string, messages []domain.Message, tools []domain.Tool) (*domain.Message, domain.Usage, error) {
+func (c *AnthropicClient) Complete(ctx context.Context, systemPrompt string, messages []domain.Message, tools []domain.Tool, opts domain.CompletionOptions) (*domain.Message, domain.Usage, error) {
+	maxTokens := c.model.MaxOutputTokens
+	if maxTokens == 0 {
+		maxTokens = 4096
+	}
+
 	params := anthropic.MessageNewParams{
-		Model:     anthropic.Model(c.modelID),
-		MaxTokens: 4096,
+		Model:     anthropic.Model(c.model.APIModelID),
+		MaxTokens: maxTokens,
 		Messages:  toSDKMessages(messages),
+	}
+
+	if opts.ThinkingEffort != "" && opts.ThinkingEffort != domain.ThinkingOff {
+		switch c.model.ThinkingStyle {
+		case domain.ThinkingStyleAdaptive:
+			params.Thinking = anthropic.ThinkingConfigParamUnion{
+				OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{},
+			}
+		case domain.ThinkingStyleBudget:
+			budgetTokens := thinkingBudget(opts.ThinkingEffort, maxTokens)
+			params.Thinking = anthropic.ThinkingConfigParamUnion{
+				OfEnabled: &anthropic.ThinkingConfigEnabledParam{
+					BudgetTokens: budgetTokens,
+				},
+			}
+		}
 	}
 
 	if systemPrompt != "" {
@@ -51,4 +72,24 @@ func (c *AnthropicClient) Complete(ctx context.Context, systemPrompt string, mes
 
 	msg, usage := fromSDKResponse(resp)
 	return msg, usage, nil
+}
+
+// thinkingBudget computes budget_tokens as a proportion of the model's max output tokens.
+func thinkingBudget(effort domain.ThinkingEffort, maxOutputTokens int64) int64 {
+	var ratio float64
+	switch effort {
+	case domain.ThinkingLow:
+		ratio = 0.25
+	case domain.ThinkingMedium:
+		ratio = 0.50
+	case domain.ThinkingHigh:
+		ratio = 0.75
+	default:
+		ratio = 0.25
+	}
+	budget := int64(float64(maxOutputTokens) * ratio)
+	if budget < 1024 {
+		budget = 1024
+	}
+	return budget
 }

@@ -109,6 +109,8 @@ func fromSDKResponse(resp *anthropic.Message) (*domain.Message, domain.Usage) {
 	msg := &domain.Message{Role: domain.RoleAssistant}
 	for _, block := range resp.Content {
 		switch block.Type {
+		case "thinking":
+			msg.Thinking += block.Thinking
 		case "text":
 			msg.Content += block.Text
 		case "tool_use":

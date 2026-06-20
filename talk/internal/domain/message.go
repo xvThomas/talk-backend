@@ -26,6 +26,7 @@ type ToolResult struct {
 type Message struct {
 	Role        Role
 	Content     string
+	Thinking    string // summarized reasoning/thinking from the model (ephemeral, not persisted)
 	ToolCalls   []ToolCall
 	ToolResults []ToolResult
 	TurnID      string // unique turn identifier used for reconciliation across sources

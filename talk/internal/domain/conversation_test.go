@@ -16,7 +16,7 @@ type stubClient struct {
 	inputs    [][]Message
 }
 
-func (s *stubClient) Complete(_ context.Context, _ string, messages []Message, _ []Tool) (*Message, Usage, error) {
+func (s *stubClient) Complete(_ context.Context, _ string, messages []Message, _ []Tool, _ CompletionOptions) (*Message, Usage, error) {
 	if s.callCount >= len(s.responses) {
 		return nil, Usage{}, errors.New("stub: no more responses")
 	}

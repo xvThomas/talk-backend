@@ -22,6 +22,7 @@ type ConversationManager struct {
 	messageHandler MessageEventHandler
 	contextBuilder *ContextBuilder
 	toolExecutor   *ToolExecutor
+	thinkingEffort ThinkingEffort
 }
 
 // ConversationManagerConfig groups all parameters for creating a ConversationManager.
@@ -77,6 +78,16 @@ func (m *ConversationManager) SetClient(client LlmClient, modelID string) {
 	m.modelID = modelID
 }
 
+// SetThinkingEffort changes the thinking/reasoning level for subsequent LLM calls.
+func (m *ConversationManager) SetThinkingEffort(effort ThinkingEffort) {
+	m.thinkingEffort = effort
+}
+
+// ThinkingEffort returns the current thinking/reasoning level.
+func (m *ConversationManager) ThinkingEffort() ThinkingEffort {
+	return m.thinkingEffort
+}
+
 // Chat sends a user message and returns the final assistant text response.
 // Tool calls are resolved automatically up to maxToolCalls iterations.
 func (m *ConversationManager) Chat(ctx context.Context, userInput string) (string, error) {
@@ -121,7 +132,9 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 		// Send the conversation to the LLM and get the response with token usage.
 		// The response may contain tool calls that need to be executed.
 		callStartedAt := time.Now()
-		response, usage, err := m.llmClient.Complete(ctx, systemPrompt, messages, tools)
+		response, usage, err := m.llmClient.Complete(ctx, systemPrompt, messages, tools, CompletionOptions{
+			ThinkingEffort: m.thinkingEffort,
+		})
 		if err != nil {
 			return "", fmt.Errorf("model completion: %w", err)
 		}

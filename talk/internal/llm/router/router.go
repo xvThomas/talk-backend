@@ -33,10 +33,10 @@ func (r *Router) Get(model string) (domain.LlmClient, error) {
 
 	switch d.APIClient {
 	case domain.APIClientAnthropic:
-		return anthropic.NewAnthropicClient(key, d.APIModelID), nil
+		return anthropic.NewAnthropicClient(key, d), nil
 	case domain.APIClientOpenAI:
 		// Standard OpenAI-compatible provider
-		return openai.NewOpenAIClient(key, d.APIModelID, d.URL), nil
+		return openai.NewOpenAIClient(key, d), nil
 	default:
 		return nil, fmt.Errorf("unsupported API client %q", d.APIClient)
 	}
