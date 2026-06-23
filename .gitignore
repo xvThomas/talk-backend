@@ -12,6 +12,9 @@ coverage.html
 coverage-libs.out
 coverage
 
+# macOS
+.DS_Store
+
 #misc
 tmp/
 .vscode/mcp.json
