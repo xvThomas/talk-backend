@@ -51,6 +51,8 @@ func newRootCmd() *cobra.Command {
 
 	_ = cmd.MarkFlagRequired("model")
 
+	cmd.AddCommand(newServeCmd())
+
 	return cmd
 }
 
