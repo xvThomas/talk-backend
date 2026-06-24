@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -286,5 +287,68 @@ func TestHandler_ModelPassedToChatFunc(t *testing.T) {
 
 	if receivedModel != "haiku-4.5" {
 		t.Errorf("chatFn received model = %q, want %q", receivedModel, "haiku-4.5")
+	}
+}
+
+func TestHandler_ClientDisconnectDuringChat(t *testing.T) {
+	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message) (string, error) {
+		// Simulate client disconnect: context is already cancelled when chatFn runs.
+		return "", ctx.Err()
+	}
+
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
+
+	body := `{"messages":[{"id":"m1","role":"user","content":"hi"}],"forwardedProps":{"model":"sonnet-4.6"}}`
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately to simulate client disconnect.
+
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	evts := parseSSEEvents(t, rec.Body.Bytes())
+
+	// Should have at most RUN_STARTED — no TEXT_MESSAGE events or RUN_FINISHED.
+	for _, evt := range evts {
+		evtType, _ := evt["type"].(string)
+		if evtType == string(events.EventTypeTextMessageStart) ||
+			evtType == string(events.EventTypeTextMessageContent) ||
+			evtType == string(events.EventTypeTextMessageEnd) ||
+			evtType == string(events.EventTypeRunFinished) {
+			t.Errorf("unexpected event after disconnect: %s", evtType)
+		}
+	}
+}
+
+func TestHandler_NoGoroutineLeak(t *testing.T) {
+	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message) (string, error) {
+		return "", ctx.Err()
+	}
+
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
+
+	baseline := runtime.NumGoroutine()
+
+	for range 10 {
+		body := `{"messages":[{"id":"m1","role":"user","content":"hi"}],"forwardedProps":{"model":"sonnet-4.6"}}`
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+		req = req.WithContext(ctx)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+	}
+
+	// Allow goroutines to settle.
+	runtime.Gosched()
+
+	after := runtime.NumGoroutine()
+	// Tolerate up to 2 goroutine variance for runtime background work.
+	if after > baseline+2 {
+		t.Errorf("goroutine leak: before=%d, after=%d", baseline, after)
 	}
 }

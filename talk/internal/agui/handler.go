@@ -100,6 +100,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var response string
 	if h.chatFn != nil {
 		response, err = h.chatFn(ctx, threadID, modelAlias, input.Messages)
+		if ctx.Err() != nil {
+			h.log.Debug("client disconnected during chat", slog.String("thread_id", threadID))
+			return
+		}
 		if err != nil {
 			_ = sse.WriteEvent(ctx, events.NewRunErrorEvent(err.Error()))
 			return
