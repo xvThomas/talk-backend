@@ -28,6 +28,10 @@ type Config struct {
 	// Reporter configuration
 	ConsoleUsageReporter bool // CONSOLE_USAGE_REPORTER=true/false (default: true)
 
+	// CORS configuration
+	CORSAllowOrigin  string // CORS_ALLOW_ORIGIN (default: "*")
+	CORSAllowHeaders string // CORS_ALLOW_HEADERS (default: "Content-Type, Authorization")
+
 	// MCP server configuration
 	//McpAllowedOrigins []string // MCP_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000 (comma-separated)
 }
@@ -53,6 +57,10 @@ func Load(envFile string) (*Config, error) {
 
 		// Reporter configuration
 		ConsoleUsageReporter: parseConsoleUsageReporter(os.Getenv("CONSOLE_USAGE_REPORTER")),
+
+		// CORS configuration
+		CORSAllowOrigin:  parseCORSValue(os.Getenv("CORS_ALLOW_ORIGIN"), "*"),
+		CORSAllowHeaders: parseCORSValue(os.Getenv("CORS_ALLOW_HEADERS"), "Content-Type, Authorization"),
 
 		// MCP server configuration
 		//McpAllowedOrigins: parseMcpAllowedOrigins(os.Getenv("MCP_ALLOWED_ORIGINS")),
@@ -174,4 +182,12 @@ func parseConsoleUsageReporter(value string) bool {
 	default:
 		return true // Default on invalid input
 	}
+}
+
+// parseCORSValue returns the environment value if set, otherwise the provided default.
+func parseCORSValue(value, defaultValue string) string {
+	if value == "" {
+		return defaultValue
+	}
+	return value
 }

@@ -7,6 +7,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/xvThomas/talk-backend/talk/internal/config"
 )
 
 func TestResolvePort(t *testing.T) {
@@ -56,7 +58,11 @@ func TestCorsMiddleware(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := corsMiddleware(inner)
+	cfg := &config.Config{
+		CORSAllowOrigin:  "*",
+		CORSAllowHeaders: "Content-Type, Authorization",
+	}
+	handler := corsMiddleware(inner, cfg)
 
 	t.Run("OPTIONS returns 204 with CORS headers", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodOptions, "/agent", nil)

@@ -13,6 +13,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/xvThomas/talk-backend/talk-libs/logger"
+	"github.com/xvThomas/talk-backend/talk/internal/agui"
+	"github.com/xvThomas/talk-backend/talk/internal/config"
 )
 
 const defaultServePort = "8090"
@@ -50,14 +52,20 @@ func runServe(ctx context.Context, port string) error {
 		log = slog.Default()
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /agent", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotImplemented)
-		_, _ = w.Write([]byte(`{"error":"not implemented"}`))
-	})
+	cfg, err := config.Load(".env")
+	if err != nil {
+		return err
+	}
 
-	handler := corsMiddleware(mux)
+	mux := http.NewServeMux()
+
+	aguiHandler := agui.NewHandler(log, nil)
+	mux.Handle("POST /agent", aguiHandler)
+	mux.HandleFunc("GET /agent", methodNotAllowed)
+	mux.HandleFunc("PUT /agent", methodNotAllowed)
+	mux.HandleFunc("DELETE /agent", methodNotAllowed)
+
+	handler := corsMiddleware(mux, cfg)
 
 	srv := &http.Server{
 		Addr:              ":" + port,
@@ -96,11 +104,11 @@ func runServe(ctx context.Context, port string) error {
 	return nil
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
+func corsMiddleware(next http.Handler, cfg *config.Config) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Origin", cfg.CORSAllowOrigin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", cfg.CORSAllowHeaders)
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -109,4 +117,8 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func methodNotAllowed(w http.ResponseWriter, _ *http.Request) {
+	http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 }

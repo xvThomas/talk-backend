@@ -3,6 +3,7 @@ module github.com/xvThomas/talk-backend/talk
 go 1.25.0
 
 require (
+	github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20260624033246-b219bdc9c6ca
 	github.com/anthropics/anthropic-sdk-go v1.27.1
 	github.com/c-bata/go-prompt v0.2.6
 	github.com/google/uuid v1.6.0
@@ -28,6 +29,7 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
