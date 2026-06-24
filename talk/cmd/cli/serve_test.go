@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -43,7 +42,7 @@ func TestResolvePort(t *testing.T) {
 			if tt.envValue != "" {
 				t.Setenv("SERVE_PORT", tt.envValue)
 			} else {
-				os.Unsetenv("SERVE_PORT")
+				t.Setenv("SERVE_PORT", "")
 			}
 
 			got := resolvePort(tt.flagValue)
