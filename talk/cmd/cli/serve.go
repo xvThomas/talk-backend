@@ -26,23 +26,18 @@ import (
 const defaultServePort = "8090"
 
 func newServeCmd() *cobra.Command {
-	var (
-		portFlag  string
-		modelFlag string
-	)
+	var portFlag string
 
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the AG-UI protocol HTTP server",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			port := resolvePort(portFlag)
-			return runServe(cmd.Context(), port, modelFlag)
+			return runServe(cmd.Context(), port)
 		},
 	}
 
 	cmd.Flags().StringVar(&portFlag, "port", "", "HTTP server port (default: 8090, env: SERVE_PORT)")
-	cmd.Flags().StringVar(&modelFlag, "model", "", "Model alias to use (e.g. sonnet-4.6, devstral)")
-	_ = cmd.MarkFlagRequired("model")
 
 	return cmd
 }
@@ -57,7 +52,7 @@ func resolvePort(flagValue string) string {
 	return defaultServePort
 }
 
-func runServe(ctx context.Context, port, modelAlias string) error {
+func runServe(ctx context.Context, port string) error {
 	log := logger.Logger
 	if log == nil {
 		log = slog.Default()
@@ -68,17 +63,8 @@ func runServe(ctx context.Context, port, modelAlias string) error {
 		return err
 	}
 
-	// Resolve LLM client from model alias.
-	r := router.NewLLMRouter(cfg)
-	client, err := r.Get(modelAlias)
-	if err != nil {
-		return fmt.Errorf("resolving model %q: %w", modelAlias, err)
-	}
-
-	modelDescriptor, err := domain.Lookup(modelAlias)
-	if err != nil {
-		return fmt.Errorf("looking up model %q: %w", modelAlias, err)
-	}
+	// LLM router for per-request model resolution.
+	llmRouter := router.NewLLMRouter(cfg)
 
 	pp := buildPromptProvider(defaultSystemPromptPath())
 
@@ -99,8 +85,20 @@ func runServe(ctx context.Context, port, modelAlias string) error {
 	mcpManager.ConnectAll(ctx)
 	defer mcpManager.Close()
 
-	// ChatFunc creates a per-request ConversationManager and calls Chat.
-	chatFn := func(reqCtx context.Context, threadID string, aguiMessages []types.Message) (string, error) {
+	// ChatFunc resolves model per request from the alias passed by the handler.
+	chatFn := func(reqCtx context.Context, threadID string, modelAlias string, aguiMessages []types.Message) (string, error) {
+		client, err := llmRouter.Get(modelAlias)
+		if err != nil {
+			log.Error("resolving model", slog.String("model", modelAlias), slog.String("error", err.Error()))
+			return "", userFacingError(err)
+		}
+
+		modelDescriptor, err := domain.Lookup(modelAlias)
+		if err != nil {
+			log.Error("looking up model", slog.String("model", modelAlias), slog.String("error", err.Error()))
+			return "", userFacingError(err)
+		}
+
 		scope := domain.NewSessionScope(threadID, "anonymous")
 		manager := domain.NewConversationManager(domain.ConversationManagerConfig{
 			Client:             client,
@@ -125,6 +123,7 @@ func runServe(ctx context.Context, port, modelAlias string) error {
 		if chatErr != nil {
 			log.Error("chat error",
 				slog.String("threadId", threadID),
+				slog.String("model", modelAlias),
 				slog.String("error", chatErr.Error()),
 			)
 			return "", userFacingError(chatErr)
@@ -134,7 +133,7 @@ func runServe(ctx context.Context, port, modelAlias string) error {
 
 	mux := http.NewServeMux()
 
-	aguiHandler := agui.NewHandler(log, chatFn)
+	aguiHandler := agui.NewHandler(log, chatFn, domain.SupportedModels())
 	mux.Handle("POST /agent", aguiHandler)
 	mux.HandleFunc("GET /agent", methodNotAllowed)
 	mux.HandleFunc("PUT /agent", methodNotAllowed)
@@ -170,7 +169,6 @@ func runServe(ctx context.Context, port, modelAlias string) error {
 
 	log.Info("starting AG-UI server",
 		slog.String("port", port),
-		slog.String("model", modelAlias),
 		slog.String("db", dbPath),
 	)
 

@@ -113,7 +113,7 @@ func TestRunServeGracefulShutdown(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- runServe(ctx, "0", "sonnet-4.6") // port 0 = random available port
+		errCh <- runServe(ctx, "0") // port 0 = random available port
 	}()
 
 	// Give the server time to start.
@@ -185,12 +185,13 @@ func TestExtractUserInput(t *testing.T) {
 	}
 }
 
-func TestServeCommandRequiresModel(t *testing.T) {
+func TestServeCommandStartsWithoutModelFlag(t *testing.T) {
 	cmd := newServeCmd()
-	cmd.SetArgs([]string{}) // no --model flag
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected error for missing --model flag")
+	// --model is no longer required; command should parse args without error.
+	cmd.SetArgs([]string{"--port", "0"})
+	// We only test flag parsing, not execution (which needs config).
+	if err := cmd.ParseFlags([]string{"--port", "0"}); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
 	}
 }
 

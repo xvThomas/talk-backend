@@ -27,10 +27,10 @@ build: ## Build the CLI binary
 run: ## Run the CLI (MODEL=haiku-4.5)
 	go run $(LDFLAGS) $(CMD) --model $(or $(MODEL),haiku-4.5) --system-file $(or $(SYSTEM_FILE),./system_prompt.md)
 
-serve: build ## Start the AG-UI server (PORT=8090)
+serve: build ## Start the AG-UI server (MODEL=haiku-4.5, PORT=8090)
 	$(BINARY) serve --port $(or $(PORT),8090)
 
-serve-dev: ## Start the AG-UI server with hot reload (requires air)
+serve-dev: ## Start the AG-UI server with hot reload (MODEL=haiku-4.5, requires air)
 	air
 
 test: ## Run tests

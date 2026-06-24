@@ -3,8 +3,10 @@ package agui
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
@@ -13,21 +15,23 @@ import (
 
 // Handler handles AG-UI protocol HTTP requests.
 type Handler struct {
-	log    *slog.Logger
-	chatFn ChatFunc
+	log             *slog.Logger
+	chatFn          ChatFunc
+	supportedModels []string
 }
 
 // ChatFunc is the function signature for processing a conversation turn.
-// It receives the thread ID and user messages, and returns the assistant response.
-type ChatFunc func(ctx context.Context, threadID string, messages []types.Message) (string, error)
+// It receives the thread ID, model alias, and user messages, and returns the assistant response.
+type ChatFunc func(ctx context.Context, threadID string, modelAlias string, messages []types.Message) (string, error)
 
 // NewHandler creates an AG-UI protocol handler.
+// supportedModels lists valid model aliases for error messages.
 // If chatFn is nil, a placeholder response is used.
-func NewHandler(log *slog.Logger, chatFn ChatFunc) *Handler {
+func NewHandler(log *slog.Logger, chatFn ChatFunc, supportedModels []string) *Handler {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Handler{log: log, chatFn: chatFn}
+	return &Handler{log: log, chatFn: chatFn, supportedModels: supportedModels}
 }
 
 // ServeHTTP handles POST /agent requests.
@@ -40,6 +44,31 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if len(input.Messages) == 0 {
 		http.Error(w, `{"error":"messages field is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Extract model alias from forwardedProps.
+	modelAlias, err := extractModelAlias(input.ForwardedProps)
+	if err != nil {
+		sse, sseErr := NewSSEWriter(w, h.log)
+		if sseErr != nil {
+			http.Error(w, `{"error":"streaming not supported"}`, http.StatusInternalServerError)
+			return
+		}
+		msg := fmt.Sprintf("%s Available models: %s.", err.Error(), strings.Join(h.supportedModels, ", "))
+		_ = sse.WriteEvent(r.Context(), events.NewRunErrorEvent(msg))
+		return
+	}
+
+	// Validate model is in the supported list.
+	if !h.isModelSupported(modelAlias) {
+		sse, sseErr := NewSSEWriter(w, h.log)
+		if sseErr != nil {
+			http.Error(w, `{"error":"streaming not supported"}`, http.StatusInternalServerError)
+			return
+		}
+		msg := fmt.Sprintf("Unknown model %q. Available models: %s.", modelAlias, strings.Join(h.supportedModels, ", "))
+		_ = sse.WriteEvent(r.Context(), events.NewRunErrorEvent(msg))
 		return
 	}
 
@@ -70,7 +99,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Get response from chat function.
 	var response string
 	if h.chatFn != nil {
-		response, err = h.chatFn(ctx, threadID, input.Messages)
+		response, err = h.chatFn(ctx, threadID, modelAlias, input.Messages)
 		if err != nil {
 			_ = sse.WriteEvent(ctx, events.NewRunErrorEvent(err.Error()))
 			return
@@ -104,4 +133,38 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.log.Error("writing RUN_FINISHED", slog.String("error", err.Error()))
 		return
 	}
+}
+
+// extractModelAlias extracts the model alias from forwardedProps.
+// Returns an error if forwardedProps is not a map or the model key is missing/empty.
+func extractModelAlias(forwardedProps any) (string, error) {
+	if forwardedProps == nil {
+		return "", fmt.Errorf("the model field is required.")
+	}
+
+	props, ok := forwardedProps.(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("the model field is required.")
+	}
+
+	modelRaw, exists := props["model"]
+	if !exists {
+		return "", fmt.Errorf("the model field is required.")
+	}
+
+	model, ok := modelRaw.(string)
+	if !ok || model == "" {
+		return "", fmt.Errorf("the model field is required.")
+	}
+
+	return model, nil
+}
+
+func (h *Handler) isModelSupported(alias string) bool {
+	for _, m := range h.supportedModels {
+		if m == alias {
+			return true
+		}
+	}
+	return false
 }

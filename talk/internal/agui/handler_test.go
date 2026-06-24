@@ -16,9 +16,9 @@ import (
 )
 
 func TestHandler_ValidRequest(t *testing.T) {
-	handler := NewHandler(nil, nil)
+	handler := NewHandler(nil, nil, []string{"sonnet-4.6", "haiku-4.5"})
 
-	body := `{"messages":[{"id":"m1","role":"user","content":"hello"}]}`
+	body := `{"messages":[{"id":"m1","role":"user","content":"hello"}],"forwardedProps":{"model":"sonnet-4.6"}}`
 	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -62,9 +62,9 @@ func TestHandler_ValidRequest(t *testing.T) {
 }
 
 func TestHandler_WithThreadID(t *testing.T) {
-	handler := NewHandler(nil, nil)
+	handler := NewHandler(nil, nil, []string{"sonnet-4.6"})
 
-	body := `{"threadId":"existing-thread","messages":[{"id":"m1","role":"user","content":"hi"}]}`
+	body := `{"threadId":"existing-thread","messages":[{"id":"m1","role":"user","content":"hi"}],"forwardedProps":{"model":"sonnet-4.6"}}`
 	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 
@@ -77,7 +77,7 @@ func TestHandler_WithThreadID(t *testing.T) {
 }
 
 func TestHandler_MalformedJSON(t *testing.T) {
-	handler := NewHandler(nil, nil)
+	handler := NewHandler(nil, nil, []string{"sonnet-4.6"})
 
 	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader("{invalid"))
 	rec := httptest.NewRecorder()
@@ -90,9 +90,9 @@ func TestHandler_MalformedJSON(t *testing.T) {
 }
 
 func TestHandler_EmptyMessages(t *testing.T) {
-	handler := NewHandler(nil, nil)
+	handler := NewHandler(nil, nil, []string{"sonnet-4.6"})
 
-	body := `{"messages":[]}`
+	body := `{"messages":[],"forwardedProps":{"model":"sonnet-4.6"}}`
 	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 
@@ -104,33 +104,33 @@ func TestHandler_EmptyMessages(t *testing.T) {
 }
 
 func TestHandler_WithChatFunc(t *testing.T) {
-	chatFn := func(_ context.Context, _ string, messages []types.Message) (string, error) {
+	chatFn := func(_ context.Context, _ string, modelAlias string, messages []types.Message) (string, error) {
 		content := fmt.Sprintf("%v", messages[0].Content)
-		return "response to: " + content, nil
+		return "response to: " + content + " (model: " + modelAlias + ")", nil
 	}
 
-	handler := NewHandler(nil, chatFn)
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
 
-	body := `{"messages":[{"id":"m1","role":"user","content":"ping"}]}`
+	body := `{"messages":[{"id":"m1","role":"user","content":"ping"}],"forwardedProps":{"model":"sonnet-4.6"}}`
 	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
 
 	evts := parseSSEEvents(t, rec.Body.Bytes())
-	if delta, _ := evts[2]["delta"].(string); delta != "response to: ping" {
-		t.Errorf("delta = %q, want %q", delta, "response to: ping")
+	if delta, _ := evts[2]["delta"].(string); delta != "response to: ping (model: sonnet-4.6)" {
+		t.Errorf("delta = %q, want %q", delta, "response to: ping (model: sonnet-4.6)")
 	}
 }
 
 func TestHandler_ChatFuncError(t *testing.T) {
-	chatFn := func(_ context.Context, _ string, _ []types.Message) (string, error) {
+	chatFn := func(_ context.Context, _ string, _ string, _ []types.Message) (string, error) {
 		return "", context.DeadlineExceeded
 	}
 
-	handler := NewHandler(nil, chatFn)
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
 
-	body := `{"messages":[{"id":"m1","role":"user","content":"hi"}]}`
+	body := `{"messages":[{"id":"m1","role":"user","content":"hi"}],"forwardedProps":{"model":"sonnet-4.6"}}`
 	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 
@@ -176,5 +176,115 @@ func assertEventType(t *testing.T, m map[string]any, want events.EventType) {
 	got, _ := m["type"].(string)
 	if got != string(want) {
 		t.Errorf("event type = %q, want %q", got, want)
+	}
+}
+
+func TestHandler_MissingForwardedProps(t *testing.T) {
+	handler := NewHandler(nil, nil, []string{"sonnet-4.6", "haiku-4.5"})
+
+	body := `{"messages":[{"id":"m1","role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	evts := parseSSEEvents(t, rec.Body.Bytes())
+	if len(evts) != 1 {
+		t.Fatalf("got %d events, want 1", len(evts))
+	}
+	assertEventType(t, evts[0], events.EventTypeRunError)
+
+	msg, _ := evts[0]["message"].(string)
+	if !strings.Contains(msg, "model field is required") {
+		t.Errorf("error message = %q, want it to contain 'model field is required'", msg)
+	}
+	if !strings.Contains(msg, "sonnet-4.6") {
+		t.Errorf("error message = %q, want it to list available models", msg)
+	}
+}
+
+func TestHandler_EmptyModelAlias(t *testing.T) {
+	handler := NewHandler(nil, nil, []string{"sonnet-4.6"})
+
+	body := `{"messages":[{"id":"m1","role":"user","content":"hi"}],"forwardedProps":{"model":""}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	evts := parseSSEEvents(t, rec.Body.Bytes())
+	if len(evts) != 1 {
+		t.Fatalf("got %d events, want 1", len(evts))
+	}
+	assertEventType(t, evts[0], events.EventTypeRunError)
+
+	msg, _ := evts[0]["message"].(string)
+	if !strings.Contains(msg, "model field is required") {
+		t.Errorf("error message = %q, want it to contain 'model field is required'", msg)
+	}
+}
+
+func TestHandler_UnknownModel(t *testing.T) {
+	handler := NewHandler(nil, nil, []string{"sonnet-4.6", "haiku-4.5"})
+
+	body := `{"messages":[{"id":"m1","role":"user","content":"hi"}],"forwardedProps":{"model":"unknown-model"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	evts := parseSSEEvents(t, rec.Body.Bytes())
+	if len(evts) != 1 {
+		t.Fatalf("got %d events, want 1", len(evts))
+	}
+	assertEventType(t, evts[0], events.EventTypeRunError)
+
+	msg, _ := evts[0]["message"].(string)
+	if !strings.Contains(msg, "Unknown model") {
+		t.Errorf("error message = %q, want it to contain 'Unknown model'", msg)
+	}
+	if !strings.Contains(msg, "sonnet-4.6") {
+		t.Errorf("error message = %q, want it to list available models", msg)
+	}
+}
+
+func TestHandler_ForwardedPropsNotAMap(t *testing.T) {
+	handler := NewHandler(nil, nil, []string{"sonnet-4.6"})
+
+	body := `{"messages":[{"id":"m1","role":"user","content":"hi"}],"forwardedProps":"not-a-map"}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	evts := parseSSEEvents(t, rec.Body.Bytes())
+	if len(evts) != 1 {
+		t.Fatalf("got %d events, want 1", len(evts))
+	}
+	assertEventType(t, evts[0], events.EventTypeRunError)
+
+	msg, _ := evts[0]["message"].(string)
+	if !strings.Contains(msg, "model field is required") {
+		t.Errorf("error message = %q, want it to contain 'model field is required'", msg)
+	}
+}
+
+func TestHandler_ModelPassedToChatFunc(t *testing.T) {
+	var receivedModel string
+	chatFn := func(_ context.Context, _ string, modelAlias string, _ []types.Message) (string, error) {
+		receivedModel = modelAlias
+		return "ok", nil
+	}
+
+	handler := NewHandler(nil, chatFn, []string{"haiku-4.5", "sonnet-4.6"})
+
+	body := `{"messages":[{"id":"m1","role":"user","content":"hi"}],"forwardedProps":{"model":"haiku-4.5"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if receivedModel != "haiku-4.5" {
+		t.Errorf("chatFn received model = %q, want %q", receivedModel, "haiku-4.5")
 	}
 }
