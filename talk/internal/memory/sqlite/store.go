@@ -16,6 +16,16 @@ import (
 
 const timeFormat = "2006-01-02T15:04:05Z"
 
+// ErrStore indicates a storage-layer failure.
+type ErrStore struct{ Err error }
+
+func (e *ErrStore) Error() string { return e.Err.Error() }
+func (e *ErrStore) Unwrap() error { return e.Err }
+
+func storeErr(msg string, err error) error {
+	return &ErrStore{Err: fmt.Errorf("%s: %w", msg, err)}
+}
+
 const schema = `
 CREATE TABLE IF NOT EXISTS sessions (
 	id         TEXT PRIMARY KEY,
@@ -74,12 +84,12 @@ var _ domain.SessionBrowser = (*Browser)(nil)
 func New(dbPath string) (*MessageRepository, *Browser, error) {
 	conn, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("opening sqlite db: %w", err)
+		return nil, nil, storeErr("opening sqlite db", err)
 	}
 	// Enable WAL mode for better concurrency.
 	if _, err := conn.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		_ = conn.Close()
-		return nil, nil, fmt.Errorf("setting WAL mode: %w", err)
+		return nil, nil, storeErr("setting WAL mode", err)
 	}
 
 	// SQLite supports only one writer at a time.
@@ -89,7 +99,7 @@ func New(dbPath string) (*MessageRepository, *Browser, error) {
 
 	if _, err := conn.Exec(schema); err != nil {
 		_ = conn.Close()
-		return nil, nil, fmt.Errorf("creating schema: %w", err)
+		return nil, nil, storeErr("creating schema", err)
 	}
 
 	d := &db{conn: conn}
@@ -126,7 +136,7 @@ func (r *MessageRepository) HandleMessageEvent(ctx context.Context, event domain
 			"INSERT INTO sessions (id, user_id, title, created_at) VALUES (?, ?, ?, ?)",
 			scope.SessionID(), scope.UserID(), title, time.Now().UTC().Format(timeFormat),
 		); err != nil {
-			return fmt.Errorf("materializing session: %w", err)
+			return storeErr("materializing session", err)
 		}
 	}
 
@@ -162,7 +172,7 @@ func (r *MessageRepository) HandleMessageEvent(ctx context.Context, event domain
 		"INSERT INTO messages (session_id, role, content, tool_name, tool_input, tool_output, tool_call_id, turn_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		scope.SessionID(), string(msg.Role), content, toolName, toolInput, toolOutput, toolCallID, msg.TurnID, now,
 	); err != nil {
-		return fmt.Errorf("inserting message: %w", err)
+		return storeErr("inserting message", err)
 	}
 
 	return nil
@@ -201,7 +211,7 @@ func (r *MessageRepository) HandleTurnEvent(ctx context.Context, event domain.Tu
 		questionAt,
 		answerAt,
 	); err != nil {
-		return fmt.Errorf("upserting history turn: %w", err)
+		return storeErr("upserting history turn", err)
 	}
 
 	return nil
@@ -210,7 +220,7 @@ func (r *MessageRepository) HandleTurnEvent(ctx context.Context, event domain.Tu
 func (r *MessageRepository) isSessionMaterialized(ctx context.Context, sessionID string) (bool, error) {
 	var count int
 	if err := r.conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE id = ?", sessionID).Scan(&count); err != nil {
-		return false, fmt.Errorf("checking session existence: %w", err)
+		return false, storeErr("checking session existence", err)
 	}
 	return count > 0, nil
 }
@@ -225,7 +235,7 @@ func (r *MessageRepository) AllMessages(ctx context.Context, sessionID string) (
 		sessionID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("querying messages: %w", err)
+		return nil, storeErr("querying messages", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -233,7 +243,7 @@ func (r *MessageRepository) AllMessages(ctx context.Context, sessionID string) (
 	for rows.Next() {
 		var role, content, toolName, toolInput, toolOutput, toolCallID, turnID string
 		if err := rows.Scan(&role, &content, &toolName, &toolInput, &toolOutput, &toolCallID, &turnID); err != nil {
-			return nil, fmt.Errorf("scanning message: %w", err)
+			return nil, storeErr("scanning message", err)
 		}
 		msg := domain.Message{
 			Role:    domain.Role(role),
@@ -270,7 +280,7 @@ func (r *MessageRepository) AllMessages(ctx context.Context, sessionID string) (
 		messages = append(messages, msg)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating messages: %w", err)
+		return nil, storeErr("iterating messages", err)
 	}
 	return messages, nil
 }
@@ -280,10 +290,10 @@ func (r *MessageRepository) ClearMessages(ctx context.Context, sessionID string)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, err := r.conn.ExecContext(ctx, "DELETE FROM messages WHERE session_id = ?", sessionID); err != nil {
-		return fmt.Errorf("clearing messages: %w", err)
+		return storeErr("clearing messages", err)
 	}
 	if _, err := r.conn.ExecContext(ctx, "DELETE FROM history_turns WHERE session_id = ?", sessionID); err != nil {
-		return fmt.Errorf("clearing history turns: %w", err)
+		return storeErr("clearing history turns", err)
 	}
 	return nil
 }
@@ -303,7 +313,7 @@ func (b *Browser) ListSessions(ctx context.Context, userID string) ([]domain.Ses
 		ORDER BY s.created_at DESC
 	`, userID)
 	if err != nil {
-		return nil, fmt.Errorf("listing sessions: %w", err)
+		return nil, storeErr("listing sessions", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -312,7 +322,7 @@ func (b *Browser) ListSessions(ctx context.Context, userID string) ([]domain.Ses
 		var ss domain.SessionSummary
 		var createdAt string
 		if err := rows.Scan(&ss.ID, &ss.Title, &createdAt, &ss.TurnCount); err != nil {
-			return nil, fmt.Errorf("scanning session: %w", err)
+			return nil, storeErr("scanning session", err)
 		}
 		parsed, err := time.Parse(timeFormat, createdAt)
 		if err != nil {
@@ -321,7 +331,10 @@ func (b *Browser) ListSessions(ctx context.Context, userID string) ([]domain.Ses
 		ss.CreatedAt = parsed
 		sessions = append(sessions, ss)
 	}
-	return sessions, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, storeErr("iterating sessions", err)
+	}
+	return sessions, nil
 }
 
 // LoadHistoryTurnsFromSession returns the conversation history for the given session as question/answer pairs.
@@ -336,7 +349,7 @@ func (b *Browser) LoadHistoryTurnsFromSession(ctx context.Context, sessionID str
 		ORDER BY COALESCE(question_at, answer_at), turn_id
 	`, sessionID)
 	if err != nil {
-		return nil, fmt.Errorf("loading history turns: %w", err)
+		return nil, storeErr("loading history turns", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -346,7 +359,7 @@ func (b *Browser) LoadHistoryTurnsFromSession(ctx context.Context, sessionID str
 		var questionAt sql.NullString
 		var answerAt sql.NullString
 		if err := rows.Scan(&turn.TurnID, &turn.Question, &turn.Answer, &questionAt, &answerAt); err != nil {
-			return nil, fmt.Errorf("scanning history turn: %w", err)
+			return nil, storeErr("scanning history turn", err)
 		}
 		if questionAt.Valid {
 			parsed, err := time.Parse(timeFormat, questionAt.String)
@@ -364,7 +377,7 @@ func (b *Browser) LoadHistoryTurnsFromSession(ctx context.Context, sessionID str
 		turns = append(turns, turn)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, storeErr("iterating history turns", err)
 	}
 	return turns, nil
 }
@@ -376,22 +389,22 @@ func (b *Browser) DeleteSession(ctx context.Context, sessionID string) error {
 
 	tx, err := b.conn.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
+		return storeErr("begin tx", err)
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM messages WHERE session_id = ?", sessionID); err != nil {
 		_ = tx.Rollback()
-		return fmt.Errorf("deleting messages: %w", err)
+		return storeErr("deleting messages", err)
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM history_turns WHERE session_id = ?", sessionID); err != nil {
 		_ = tx.Rollback()
-		return fmt.Errorf("deleting history turns: %w", err)
+		return storeErr("deleting history turns", err)
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE id = ?", sessionID); err != nil {
 		_ = tx.Rollback()
-		return fmt.Errorf("deleting session: %w", err)
+		return storeErr("deleting session", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit tx: %w", err)
+		return storeErr("commit tx", err)
 	}
 	return nil
 }

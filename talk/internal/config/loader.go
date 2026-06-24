@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -9,6 +10,9 @@ import (
 
 	"github.com/joho/godotenv"
 )
+
+// ErrMissingEnvVar is returned when a required environment variable is not set.
+var ErrMissingEnvVar = errors.New("missing required environment variable")
 
 // Config holds all configuration loaded from environment variables.
 type Config struct {
@@ -98,7 +102,7 @@ func (c *Config) RequireOpenWeatherMapKey() (string, error) {
 
 func requireKey(value, name string) (string, error) {
 	if value == "" {
-		return "", fmt.Errorf("missing required environment variable %q", name)
+		return "", fmt.Errorf("%w %q", ErrMissingEnvVar, name)
 	}
 	return value, nil
 }
@@ -112,7 +116,7 @@ func GetKeyValue(name string) string {
 func GetRequiredKeyValue(name string) (string, error) {
 	value := os.Getenv(name)
 	if value == "" {
-		return "", fmt.Errorf("missing required environment variable %q", name)
+		return "", fmt.Errorf("%w %q", ErrMissingEnvVar, name)
 	}
 	return value, nil
 }

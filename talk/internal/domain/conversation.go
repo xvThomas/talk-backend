@@ -3,10 +3,14 @@ package domain
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 )
+
+// ErrSystemPrompt is returned when the system prompt cannot be loaded.
+var ErrSystemPrompt = errors.New("loading system prompt")
 
 const maxToolCalls = 5
 
@@ -93,7 +97,7 @@ func (m *ConversationManager) ThinkingEffort() ThinkingEffort {
 func (m *ConversationManager) Chat(ctx context.Context, userInput string) (string, error) {
 	systemPrompt, err := m.promptProvider.SystemPrompt(ctx)
 	if err != nil {
-		return "", fmt.Errorf("loading system prompt: %w", err)
+		return "", fmt.Errorf("%w: %w", ErrSystemPrompt, err)
 	}
 
 	// turnID is used to correlate all messages, API calls, and tool calls for this conversation turn in observability.
