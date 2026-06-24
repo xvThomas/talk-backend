@@ -224,6 +224,8 @@ func userFacingError(err error) error {
 	case errors.Is(err, config.ErrMissingEnvVar) ||
 		errors.Is(err, domain.ErrSystemPrompt):
 		return fmt.Errorf("the assistant is not configured correctly, please contact the administrator")
+	case errors.Is(err, domain.ErrMaxToolIterations):
+		return fmt.Errorf("J'ai atteint la limite d'appels d'outils sans pouvoir finaliser. Essayez de reformuler votre question de manière plus spécifique.")
 	case errors.As(err, new(*sqlitestore.ErrStore)):
 		return fmt.Errorf("service temporarily unavailable, please try again")
 	default:

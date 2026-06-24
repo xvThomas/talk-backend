@@ -12,6 +12,9 @@ import (
 // ErrSystemPrompt is returned when the system prompt cannot be loaded.
 var ErrSystemPrompt = errors.New("loading system prompt")
 
+// ErrMaxToolIterations is returned when the tool execution loop exhausts its iteration budget.
+var ErrMaxToolIterations = errors.New("maximum tool call iterations exceeded")
+
 const maxToolCalls = 5
 
 // ConversationManager orchestrates a multi-turn conversation with optional tool calls.
@@ -218,7 +221,7 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 		}
 	}
 
-	return "", fmt.Errorf("exceeded maximum tool call iterations (%d)", maxToolCalls)
+	return "", ErrMaxToolIterations
 }
 
 // formatMessagesAsInput formats the conversation messages as a readable input string for observability

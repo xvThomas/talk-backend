@@ -227,6 +227,16 @@ func TestUserFacingError(t *testing.T) {
 			want: "service temporarily unavailable, please try again",
 		},
 		{
+			name: "max tool iterations",
+			err:  domain.ErrMaxToolIterations,
+			want: "J'ai atteint la limite d'appels d'outils sans pouvoir finaliser. Essayez de reformuler votre question de manière plus spécifique.",
+		},
+		{
+			name: "wrapped max tool iterations",
+			err:  fmt.Errorf("chat failed: %w", domain.ErrMaxToolIterations),
+			want: "J'ai atteint la limite d'appels d'outils sans pouvoir finaliser. Essayez de reformuler votre question de manière plus spécifique.",
+		},
+		{
 			name: "unknown error",
 			err:  fmt.Errorf("something unexpected happened"),
 			want: "an unexpected error occurred, please try again",
