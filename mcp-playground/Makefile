@@ -1,8 +1,12 @@
+ifeq ($(OS),Windows_NT)
+  SHELL := bash
+endif
+
 APP_NAME     := mcp-playground
 BINARY       := bin/$(APP_NAME)
 CMD          := ./cmd
 VERSION      := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS      := -ldflags "-X github.com/xvThomas/LLMClientWrapper/talk-libs/version.Version=$(VERSION)"
+LDFLAGS      := -ldflags "-X github.com/xvThomas/talk-backend/talk-libs/version.Version=$(VERSION)"
 DOCKER_IMAGE := $(APP_NAME)
 
 .PHONY: all build run dev test cover vet lint clean dockerize help

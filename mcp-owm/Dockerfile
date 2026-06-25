@@ -10,7 +10,7 @@ COPY mcp-owm/ ./mcp-owm/
 ENV GOWORK=off
 RUN VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev") && \
     cd mcp-owm && go mod download && \
-    CGO_ENABLED=0 go build -ldflags "-X github.com/xvThomas/LLMClientWrapper/talk-libs/version.Version=${VERSION}" -o /bin/mcp-owm ./cmd
+    CGO_ENABLED=0 go build -ldflags "-X github.com/xvThomas/talk-backend/talk-libs/version.Version=${VERSION}" -o /bin/mcp-owm ./cmd
 
 FROM alpine:3.21
 

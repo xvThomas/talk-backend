@@ -1,3 +1,7 @@
+ifeq ($(OS),Windows_NT)
+  SHELL := bash
+endif
+
 MODULES := talk-libs talk mcp-playground mcp-owm mcp-ign-nav
 
 .PHONY: all test cover vet lint clean help $(MODULES)
