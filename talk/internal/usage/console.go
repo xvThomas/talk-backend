@@ -47,14 +47,19 @@ func (ConsoleUsageReporter) HandleMessageEvent(_ context.Context, messageEvent d
 	return nil
 }
 
-// HandleToolCallEvent is called right before tool execution starts.
-func (ConsoleUsageReporter) HandleToolCallEvent(_ context.Context, e domain.ToolCallEvent) error {
+// HandleToolCallStart is called right before tool execution starts.
+func (ConsoleUsageReporter) HandleToolCallStart(_ context.Context, e domain.ToolCallEvent) error {
 	inputJSON, _ := json.Marshal(e.ToolCall.Input)
 	fmt.Printf(
 		faint("  ↳   [tool call] tool=%s args=%s\n"),
 		e.ToolCall.Name, string(inputJSON),
 	)
 
+	return nil
+}
+
+// HandleToolCallEnd is called after tool execution completes.
+func (ConsoleUsageReporter) HandleToolCallEnd(_ context.Context, _ domain.ToolCallEndEvent) error {
 	return nil
 }
 

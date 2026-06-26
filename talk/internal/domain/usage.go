@@ -116,10 +116,20 @@ type ToolCallEvent struct {
 	StartedAt time.Time
 }
 
-// ToolCallEventHandler receives tool call execution events.
+// ToolCallEndEvent is emitted when a tool call has completed execution.
+type ToolCallEndEvent struct {
+	TurnID    string
+	ToolCall  ToolCall
+	Result    ToolResult
+	StartedAt time.Time
+	EndedAt   time.Time
+}
+
+// ToolCallEventHandler receives tool call lifecycle events.
 // This interface is optional: only interested handlers need to implement it.
 type ToolCallEventHandler interface {
-	HandleToolCallEvent(ctx context.Context, event ToolCallEvent) error
+	HandleToolCallStart(ctx context.Context, event ToolCallEvent) error
+	HandleToolCallEnd(ctx context.Context, event ToolCallEndEvent) error
 }
 
 // MessageEventHandler receives message and turn events.
@@ -153,15 +163,27 @@ func (h *MessageEventHandlers) HandleTurnEvent(ctx context.Context, event TurnEv
 	})
 }
 
-// HandleToolCallEvent dispatches one tool call event through all phases.
+// HandleToolCallStart dispatches one tool call start event through all phases.
 // Only handlers implementing ToolCallEventHandler are called.
-func (h *MessageEventHandlers) HandleToolCallEvent(ctx context.Context, event ToolCallEvent) error {
+func (h *MessageEventHandlers) HandleToolCallStart(ctx context.Context, event ToolCallEvent) error {
 	return h.runPhases(func(handler MessageEventHandler) error {
 		toolHandler, ok := handler.(ToolCallEventHandler)
 		if !ok {
 			return nil
 		}
-		return toolHandler.HandleToolCallEvent(ctx, event)
+		return toolHandler.HandleToolCallStart(ctx, event)
+	})
+}
+
+// HandleToolCallEnd dispatches one tool call end event through all phases.
+// Only handlers implementing ToolCallEventHandler are called.
+func (h *MessageEventHandlers) HandleToolCallEnd(ctx context.Context, event ToolCallEndEvent) error {
+	return h.runPhases(func(handler MessageEventHandler) error {
+		toolHandler, ok := handler.(ToolCallEventHandler)
+		if !ok {
+			return nil
+		}
+		return toolHandler.HandleToolCallEnd(ctx, event)
 	})
 }
 

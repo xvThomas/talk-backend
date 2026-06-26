@@ -65,18 +65,29 @@ func (e *ToolExecutor) executeSequential(ctx context.Context, turnID string, cal
 	for _, call := range calls {
 		startedAt := time.Now()
 		if e.toolHandler != nil {
-			if err := e.toolHandler.HandleToolCallEvent(ctx, ToolCallEvent{
+			if err := e.toolHandler.HandleToolCallStart(ctx, ToolCallEvent{
 				TurnID:    turnID,
 				ToolCall:  call,
 				StartedAt: startedAt,
 			}); err != nil {
-				return nil, fmt.Errorf("handling tool call event: %w", err)
+				return nil, fmt.Errorf("handling tool call start: %w", err)
 			}
 		}
-		result, err := e.ExecuteTool(ctx, call)
+		result, execErr := e.ExecuteTool(ctx, call)
 		endedAt := time.Now()
-		if err != nil {
-			return nil, err
+		if execErr != nil {
+			result = ToolResult{ToolCallID: call.ID, Content: formatToolError(execErr)}
+		}
+		if e.toolHandler != nil {
+			if err := e.toolHandler.HandleToolCallEnd(ctx, ToolCallEndEvent{
+				TurnID:    turnID,
+				ToolCall:  call,
+				Result:    result,
+				StartedAt: startedAt,
+				EndedAt:   endedAt,
+			}); err != nil {
+				return nil, fmt.Errorf("handling tool call end: %w", err)
+			}
 		}
 		executions = append(executions, ToolExecutionResult{
 			Message: Message{
@@ -100,29 +111,38 @@ func (e *ToolExecutor) executeParallel(ctx context.Context, turnID string, calls
 	var wg sync.WaitGroup
 
 	for i, call := range calls {
-		wg.Add(1)
-		go func(idx int, toolCall ToolCall) {
-			defer wg.Done()
-
+		idx, toolCall := i, call
+		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
 			startedAt := time.Now()
 			if e.toolHandler != nil {
-				if err := e.toolHandler.HandleToolCallEvent(ctx, ToolCallEvent{
+				if err := e.toolHandler.HandleToolCallStart(ctx, ToolCallEvent{
 					TurnID:    turnID,
 					ToolCall:  toolCall,
 					StartedAt: startedAt,
 				}); err != nil {
-					errors[idx] = fmt.Errorf("handling tool call event: %w", err)
+					errors[idx] = fmt.Errorf("handling tool call start: %w", err)
 					return
 				}
 			}
-			result, err := e.ExecuteTool(ctx, toolCall)
+			result, execErr := e.ExecuteTool(ctx, toolCall)
 			endedAt := time.Now()
-			if err != nil {
-				errors[idx] = err
-				return
+			if execErr != nil {
+				result = ToolResult{ToolCallID: toolCall.ID, Content: formatToolError(execErr)}
+			}
+			if e.toolHandler != nil {
+				if err := e.toolHandler.HandleToolCallEnd(ctx, ToolCallEndEvent{
+					TurnID:    turnID,
+					ToolCall:  toolCall,
+					Result:    result,
+					StartedAt: startedAt,
+					EndedAt:   endedAt,
+				}); err != nil {
+					errors[idx] = fmt.Errorf("handling tool call end: %w", err)
+					return
+				}
 			}
 			executions[idx] = ToolExecutionResult{
 				Message: Message{
@@ -134,7 +154,7 @@ func (e *ToolExecutor) executeParallel(ctx context.Context, turnID string, calls
 				StartedAt: startedAt,
 				EndedAt:   endedAt,
 			}
-		}(i, call)
+		})
 	}
 
 	wg.Wait()
@@ -146,4 +166,13 @@ func (e *ToolExecutor) executeParallel(ctx context.Context, turnID string, calls
 	}
 
 	return executions, nil
+}
+
+// formatToolError produces a JSON error payload for a failed tool execution.
+func formatToolError(err error) string {
+	raw, _ := json.Marshal(map[string]any{
+		"ok":    false,
+		"error": map[string]string{"kind": "tool_error", "message": err.Error()},
+	})
+	return string(raw)
 }

@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/encoding/sse"
 )
 
 // SSEWriter writes AG-UI events to an HTTP response as Server-Sent Events.
+// It is safe for concurrent use from multiple goroutines within a single request.
 type SSEWriter struct {
+	mu     sync.Mutex
 	w      http.ResponseWriter
 	writer *sse.SSEWriter
 }
@@ -38,6 +41,9 @@ func NewSSEWriter(w http.ResponseWriter, log *slog.Logger) (*SSEWriter, error) {
 }
 
 // WriteEvent serializes an AG-UI event and writes it as an SSE data frame.
+// It is safe for concurrent use; writes are serialized with a mutex.
 func (s *SSEWriter) WriteEvent(ctx context.Context, event events.Event) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.writer.WriteEvent(ctx, s.w, event)
 }

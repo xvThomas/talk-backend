@@ -14,6 +14,7 @@ import (
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
+	"github.com/xvThomas/talk-backend/talk/internal/domain"
 )
 
 func TestHandler_ValidRequest(t *testing.T) {
@@ -105,7 +106,7 @@ func TestHandler_EmptyMessages(t *testing.T) {
 }
 
 func TestHandler_WithChatFunc(t *testing.T) {
-	chatFn := func(_ context.Context, _ string, modelAlias string, messages []types.Message) (string, error) {
+	chatFn := func(_ context.Context, _ string, modelAlias string, messages []types.Message, _ domain.ToolCallEventHandler) (string, error) {
 		content := fmt.Sprintf("%v", messages[0].Content)
 		return "response to: " + content + " (model: " + modelAlias + ")", nil
 	}
@@ -125,7 +126,7 @@ func TestHandler_WithChatFunc(t *testing.T) {
 }
 
 func TestHandler_ChatFuncError(t *testing.T) {
-	chatFn := func(_ context.Context, _ string, _ string, _ []types.Message) (string, error) {
+	chatFn := func(_ context.Context, _ string, _ string, _ []types.Message, _ domain.ToolCallEventHandler) (string, error) {
 		return "", context.DeadlineExceeded
 	}
 
@@ -272,7 +273,7 @@ func TestHandler_ForwardedPropsNotAMap(t *testing.T) {
 
 func TestHandler_ModelPassedToChatFunc(t *testing.T) {
 	var receivedModel string
-	chatFn := func(_ context.Context, _ string, modelAlias string, _ []types.Message) (string, error) {
+	chatFn := func(_ context.Context, _ string, modelAlias string, _ []types.Message, _ domain.ToolCallEventHandler) (string, error) {
 		receivedModel = modelAlias
 		return "ok", nil
 	}
@@ -291,7 +292,7 @@ func TestHandler_ModelPassedToChatFunc(t *testing.T) {
 }
 
 func TestHandler_ClientDisconnectDuringChat(t *testing.T) {
-	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message) (string, error) {
+	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, _ domain.ToolCallEventHandler) (string, error) {
 		// Simulate client disconnect: context is already cancelled when chatFn runs.
 		return "", ctx.Err()
 	}
@@ -323,7 +324,7 @@ func TestHandler_ClientDisconnectDuringChat(t *testing.T) {
 }
 
 func TestHandler_NoGoroutineLeak(t *testing.T) {
-	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message) (string, error) {
+	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, _ domain.ToolCallEventHandler) (string, error) {
 		return "", ctx.Err()
 	}
 
@@ -350,5 +351,154 @@ func TestHandler_NoGoroutineLeak(t *testing.T) {
 	// Tolerate up to 2 goroutine variance for runtime background work.
 	if after > baseline+2 {
 		t.Errorf("goroutine leak: before=%d, after=%d", baseline, after)
+	}
+}
+
+func TestHandler_ToolCallEventsInSSEStream(t *testing.T) {
+	// A chatFn that uses the toolHandler to emit tool call events.
+	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, toolHandler domain.ToolCallEventHandler) (string, error) {
+		tc := domain.ToolCall{ID: "call-abc", Name: "get_weather", Input: map[string]any{"city": "Paris"}}
+
+		_ = toolHandler.HandleToolCallStart(ctx, domain.ToolCallEvent{
+			TurnID:   "turn-1",
+			ToolCall: tc,
+		})
+		_ = toolHandler.HandleToolCallEnd(ctx, domain.ToolCallEndEvent{
+			TurnID:   "turn-1",
+			ToolCall: tc,
+			Result:   domain.ToolResult{ToolCallID: "call-abc", Content: "sunny"},
+		})
+		return "The weather is sunny", nil
+	}
+
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
+
+	body := `{"messages":[{"id":"m1","role":"user","content":"weather?"}],"forwardedProps":{"model":"sonnet-4.6"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	evts := parseSSEEvents(t, rec.Body.Bytes())
+
+	// Expected sequence:
+	// RUN_STARTED, TOOL_CALL_START, TOOL_CALL_ARGS, TOOL_CALL_END,
+	// TEXT_MESSAGE_START, TEXT_MESSAGE_CONTENT, TEXT_MESSAGE_END, RUN_FINISHED
+	if len(evts) != 8 {
+		for i, e := range evts {
+			t.Logf("event[%d]: %v", i, e["type"])
+		}
+		t.Fatalf("got %d events, want 8", len(evts))
+	}
+
+	assertEventType(t, evts[0], events.EventTypeRunStarted)
+	assertEventType(t, evts[1], events.EventTypeToolCallStart)
+	assertEventType(t, evts[2], events.EventTypeToolCallArgs)
+	assertEventType(t, evts[3], events.EventTypeToolCallEnd)
+	assertEventType(t, evts[4], events.EventTypeTextMessageStart)
+	assertEventType(t, evts[5], events.EventTypeTextMessageContent)
+	assertEventType(t, evts[6], events.EventTypeTextMessageEnd)
+	assertEventType(t, evts[7], events.EventTypeRunFinished)
+
+	// Verify tool call IDs are consistent.
+	if id := evts[1]["toolCallId"]; id != "call-abc" {
+		t.Errorf("TOOL_CALL_START toolCallId = %v, want %q", id, "call-abc")
+	}
+	if id := evts[3]["toolCallId"]; id != "call-abc" {
+		t.Errorf("TOOL_CALL_END toolCallId = %v, want %q", id, "call-abc")
+	}
+}
+
+func TestHandler_MultipleToolCallsInOneIteration(t *testing.T) {
+	// chatFn simulates two tool calls in one iteration.
+	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, toolHandler domain.ToolCallEventHandler) (string, error) {
+		tools := []domain.ToolCall{
+			{ID: "call-1", Name: "get_weather", Input: map[string]any{"city": "Paris"}},
+			{ID: "call-2", Name: "get_time", Input: map[string]any{"tz": "CET"}},
+		}
+		for _, tc := range tools {
+			_ = toolHandler.HandleToolCallStart(ctx, domain.ToolCallEvent{TurnID: "turn-1", ToolCall: tc})
+			_ = toolHandler.HandleToolCallEnd(ctx, domain.ToolCallEndEvent{TurnID: "turn-1", ToolCall: tc, Result: domain.ToolResult{ToolCallID: tc.ID, Content: "ok"}})
+		}
+		return "done", nil
+	}
+
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
+
+	body := `{"messages":[{"id":"m1","role":"user","content":"hi"}],"forwardedProps":{"model":"sonnet-4.6"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	evts := parseSSEEvents(t, rec.Body.Bytes())
+
+	// RUN_STARTED + 2*(START+ARGS+END) + TEXT_MESSAGE_START/CONTENT/END + RUN_FINISHED = 11
+	if len(evts) != 11 {
+		for i, e := range evts {
+			t.Logf("event[%d]: %v", i, e["type"])
+		}
+		t.Fatalf("got %d events, want 11", len(evts))
+	}
+
+	// First tool triplet.
+	assertEventType(t, evts[1], events.EventTypeToolCallStart)
+	assertEventType(t, evts[2], events.EventTypeToolCallArgs)
+	assertEventType(t, evts[3], events.EventTypeToolCallEnd)
+	if evts[1]["toolCallId"] != "call-1" {
+		t.Errorf("first TOOL_CALL_START toolCallId = %v, want %q", evts[1]["toolCallId"], "call-1")
+	}
+
+	// Second tool triplet.
+	assertEventType(t, evts[4], events.EventTypeToolCallStart)
+	assertEventType(t, evts[5], events.EventTypeToolCallArgs)
+	assertEventType(t, evts[6], events.EventTypeToolCallEnd)
+	if evts[4]["toolCallId"] != "call-2" {
+		t.Errorf("second TOOL_CALL_START toolCallId = %v, want %q", evts[4]["toolCallId"], "call-2")
+	}
+}
+
+func TestHandler_MultiIterationToolLoop(t *testing.T) {
+	// chatFn simulates two iterations: first iteration calls a tool, second iteration calls another.
+	callCount := 0
+	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, toolHandler domain.ToolCallEventHandler) (string, error) {
+		callCount++
+		// Simulate iteration 1: tool call.
+		tc1 := domain.ToolCall{ID: "call-iter1", Name: "search", Input: map[string]any{"q": "hello"}}
+		_ = toolHandler.HandleToolCallStart(ctx, domain.ToolCallEvent{TurnID: "turn-1", ToolCall: tc1})
+		_ = toolHandler.HandleToolCallEnd(ctx, domain.ToolCallEndEvent{TurnID: "turn-1", ToolCall: tc1, Result: domain.ToolResult{ToolCallID: tc1.ID, Content: "found"}})
+
+		// Simulate iteration 2: another tool call.
+		tc2 := domain.ToolCall{ID: "call-iter2", Name: "fetch", Input: map[string]any{"url": "http://x"}}
+		_ = toolHandler.HandleToolCallStart(ctx, domain.ToolCallEvent{TurnID: "turn-1", ToolCall: tc2})
+		_ = toolHandler.HandleToolCallEnd(ctx, domain.ToolCallEndEvent{TurnID: "turn-1", ToolCall: tc2, Result: domain.ToolResult{ToolCallID: tc2.ID, Content: "data"}})
+
+		return "final answer", nil
+	}
+
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
+
+	body := `{"messages":[{"id":"m1","role":"user","content":"q"}],"forwardedProps":{"model":"sonnet-4.6"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	evts := parseSSEEvents(t, rec.Body.Bytes())
+
+	// RUN_STARTED + 2*(START+ARGS+END) + TEXT_MESSAGE_START/CONTENT/END + RUN_FINISHED = 11
+	if len(evts) != 11 {
+		for i, e := range evts {
+			t.Logf("event[%d]: %v", i, e["type"])
+		}
+		t.Fatalf("got %d events, want 11", len(evts))
+	}
+
+	// Verify both iterations produced distinct tool call IDs.
+	if evts[1]["toolCallId"] != "call-iter1" {
+		t.Errorf("iter1 toolCallId = %v, want %q", evts[1]["toolCallId"], "call-iter1")
+	}
+	if evts[4]["toolCallId"] != "call-iter2" {
+		t.Errorf("iter2 toolCallId = %v, want %q", evts[4]["toolCallId"], "call-iter2")
 	}
 }

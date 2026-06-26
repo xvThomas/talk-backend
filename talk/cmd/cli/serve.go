@@ -86,7 +86,7 @@ func runServe(ctx context.Context, port string) error {
 	defer mcpManager.Close()
 
 	// ChatFunc resolves model per request from the alias passed by the handler.
-	chatFn := func(reqCtx context.Context, threadID string, modelAlias string, aguiMessages []types.Message) (string, error) {
+	chatFn := func(reqCtx context.Context, threadID string, modelAlias string, aguiMessages []types.Message, toolHandler domain.ToolCallEventHandler) (string, error) {
 		client, err := llmRouter.Get(modelAlias)
 		if err != nil {
 			log.Error("resolving model", slog.String("model", modelAlias), slog.String("error", err.Error()))
@@ -110,6 +110,7 @@ func runServe(ctx context.Context, port string) error {
 			PromptProvider:     pp,
 			Tools:              mcpManager.Tools,
 			EventHandlers:      messages,
+			ToolCallHandler:    toolHandler,
 			MaxConcurrentTools: cfg.ToolsMaxConcurrent,
 			ContextFullTurns:   cfg.ContextFullTurns,
 		})

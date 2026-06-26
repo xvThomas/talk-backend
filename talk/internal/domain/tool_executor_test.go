@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -184,9 +185,16 @@ func TestToolExecutor_Execute_Error(t *testing.T) {
 		{ID: "call-1", Name: "error-tool", Input: map[string]any{}},
 	}
 
-	_, err := executor.Execute(context.Background(), "turn-123", calls)
-	if err == nil {
-		t.Error("expected error, got nil")
+	executions, err := executor.Execute(context.Background(), "turn-123", calls)
+	if err != nil {
+		t.Fatalf("expected resilient execution, got error: %v", err)
+	}
+	if len(executions) != 1 {
+		t.Fatalf("expected 1 execution, got %d", len(executions))
+	}
+	content := executions[0].Message.ToolResults[0].Content
+	if !strings.Contains(content, "tool_error") {
+		t.Errorf("expected tool_error in result, got: %s", content)
 	}
 }
 
@@ -259,9 +267,18 @@ func TestToolExecutor_Execute_Parallel_Error(t *testing.T) {
 		{ID: "call-2", Name: "error-tool", Input: map[string]any{}},
 	}
 
-	_, err := executor.Execute(context.Background(), "turn-789", calls)
-	if err == nil {
-		t.Error("expected error, got nil")
+	executions, err := executor.Execute(context.Background(), "turn-789", calls)
+	if err != nil {
+		t.Fatalf("expected resilient execution, got error: %v", err)
+	}
+	if len(executions) != 2 {
+		t.Fatalf("expected 2 executions, got %d", len(executions))
+	}
+	for i, exec := range executions {
+		content := exec.Message.ToolResults[0].Content
+		if !strings.Contains(content, "tool_error") {
+			t.Errorf("execution %d: expected tool_error in result, got: %s", i, content)
+		}
 	}
 }
 
@@ -330,14 +347,22 @@ func TestToolExecutor_JSONMarshalError(t *testing.T) {
 }
 
 type recordingToolCallHandler struct {
-	mu     sync.Mutex
-	events []ToolCallEvent
+	mu        sync.Mutex
+	events    []ToolCallEvent
+	endEvents []ToolCallEndEvent
 }
 
-func (h *recordingToolCallHandler) HandleToolCallEvent(_ context.Context, event ToolCallEvent) error {
+func (h *recordingToolCallHandler) HandleToolCallStart(_ context.Context, event ToolCallEvent) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.events = append(h.events, event)
+	return nil
+}
+
+func (h *recordingToolCallHandler) HandleToolCallEnd(_ context.Context, event ToolCallEndEvent) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.endEvents = append(h.endEvents, event)
 	return nil
 }
 
@@ -373,5 +398,112 @@ func TestToolExecutor_EmitToolCallEvent(t *testing.T) {
 		if evt.StartedAt.IsZero() {
 			t.Errorf("event %d: expected non-zero StartedAt", i)
 		}
+	}
+
+	// Assert end events are emitted for each tool call.
+	if len(handler.endEvents) != 2 {
+		t.Fatalf("expected 2 tool call end events, got %d", len(handler.endEvents))
+	}
+	for i, endEvt := range handler.endEvents {
+		if endEvt.TurnID != "turn-42" {
+			t.Errorf("end event %d: expected turn id turn-42, got %q", i, endEvt.TurnID)
+		}
+		if endEvt.ToolCall.ID != calls[i].ID {
+			t.Errorf("end event %d: expected tool call id %q, got %q", i, calls[i].ID, endEvt.ToolCall.ID)
+		}
+		if endEvt.Result.ToolCallID != calls[i].ID {
+			t.Errorf("end event %d: result tool call id = %q, want %q", i, endEvt.Result.ToolCallID, calls[i].ID)
+		}
+		if endEvt.StartedAt.IsZero() || endEvt.EndedAt.IsZero() {
+			t.Errorf("end event %d: expected non-zero timing", i)
+		}
+		if endEvt.EndedAt.Before(endEvt.StartedAt) {
+			t.Errorf("end event %d: EndedAt before StartedAt", i)
+		}
+	}
+}
+
+func TestToolExecutor_EmitToolCallEvent_Parallel(t *testing.T) {
+	tools := []Tool{&mockTool{name: "test-tool"}}
+	handler := &recordingToolCallHandler{}
+	executor := NewToolExecutor(func() []Tool { return tools }, 4, handler)
+
+	calls := []ToolCall{
+		{ID: "p-1", Name: "test-tool", Input: map[string]any{"x": 1}},
+		{ID: "p-2", Name: "test-tool", Input: map[string]any{"x": 2}},
+		{ID: "p-3", Name: "test-tool", Input: map[string]any{"x": 3}},
+	}
+
+	_, err := executor.Execute(context.Background(), "turn-p", calls)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+
+	if len(handler.events) != 3 {
+		t.Fatalf("expected 3 start events, got %d", len(handler.events))
+	}
+	if len(handler.endEvents) != 3 {
+		t.Fatalf("expected 3 end events, got %d", len(handler.endEvents))
+	}
+
+	// Verify each end event has valid timing and matching tool call ID.
+	endByID := make(map[string]ToolCallEndEvent)
+	for _, e := range handler.endEvents {
+		endByID[e.ToolCall.ID] = e
+	}
+	for _, call := range calls {
+		endEvt, ok := endByID[call.ID]
+		if !ok {
+			t.Errorf("missing end event for tool call %q", call.ID)
+			continue
+		}
+		if endEvt.Result.ToolCallID != call.ID {
+			t.Errorf("end event for %q: result id = %q", call.ID, endEvt.Result.ToolCallID)
+		}
+		if endEvt.EndedAt.Before(endEvt.StartedAt) {
+			t.Errorf("end event for %q: EndedAt before StartedAt", call.ID)
+		}
+	}
+}
+
+func TestToolExecutor_ToolErrorProducesResult(t *testing.T) {
+	failTool := &mockTool{
+		name: "fail-tool",
+		executeFunc: func(_ context.Context, _ map[string]any) (map[string]any, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
+	}
+	tools := []Tool{failTool}
+	handler := &recordingToolCallHandler{}
+	executor := NewToolExecutor(func() []Tool { return tools }, 1, handler)
+
+	calls := []ToolCall{{ID: "call-err", Name: "fail-tool", Input: map[string]any{}}}
+
+	results, err := executor.Execute(context.Background(), "turn-err", calls)
+	if err != nil {
+		t.Fatalf("expected no error (resilient), got: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	// Verify error result content.
+	content := results[0].Message.ToolResults[0].Content
+	if !strings.Contains(content, "tool_error") {
+		t.Errorf("expected error result to contain tool_error, got: %s", content)
+	}
+
+	// End event must still be emitted.
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+	if len(handler.endEvents) != 1 {
+		t.Fatalf("expected 1 end event on error, got %d", len(handler.endEvents))
+	}
+	if handler.endEvents[0].ToolCall.ID != "call-err" {
+		t.Errorf("end event tool call id = %q, want %q", handler.endEvents[0].ToolCall.ID, "call-err")
 	}
 }

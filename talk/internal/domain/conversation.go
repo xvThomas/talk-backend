@@ -43,6 +43,7 @@ type ConversationManagerConfig struct {
 	PromptProvider     PromptProvider
 	Tools              func() []Tool
 	EventHandlers      MessageEventHandler
+	ToolCallHandler    ToolCallEventHandler
 	MaxConcurrentTools int
 	ContextFullTurns   int
 }
@@ -55,7 +56,9 @@ func NewConversationManager(cfg ConversationManagerConfig) *ConversationManager 
 	}
 
 	var toolHandler ToolCallEventHandler
-	if h, ok := messageHandler.(ToolCallEventHandler); ok {
+	if cfg.ToolCallHandler != nil {
+		toolHandler = cfg.ToolCallHandler
+	} else if h, ok := messageHandler.(ToolCallEventHandler); ok {
 		toolHandler = h
 	}
 

@@ -11,6 +11,7 @@ import (
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/google/uuid"
+	"github.com/xvThomas/talk-backend/talk/internal/domain"
 )
 
 // Handler handles AG-UI protocol HTTP requests.
@@ -21,8 +22,9 @@ type Handler struct {
 }
 
 // ChatFunc is the function signature for processing a conversation turn.
-// It receives the thread ID, model alias, and user messages, and returns the assistant response.
-type ChatFunc func(ctx context.Context, threadID string, modelAlias string, messages []types.Message) (string, error)
+// It receives the thread ID, model alias, user messages, and an optional tool call event handler
+// for emitting tool call lifecycle events to the SSE stream.
+type ChatFunc func(ctx context.Context, threadID string, modelAlias string, messages []types.Message, toolHandler domain.ToolCallEventHandler) (string, error)
 
 // NewHandler creates an AG-UI protocol handler.
 // supportedModels lists valid model aliases for error messages.
@@ -99,7 +101,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Get response from chat function.
 	var response string
 	if h.chatFn != nil {
-		response, err = h.chatFn(ctx, threadID, modelAlias, input.Messages)
+		toolEmitter := NewToolCallEmitter(sse, h.log)
+		response, err = h.chatFn(ctx, threadID, modelAlias, input.Messages, toolEmitter)
 		if ctx.Err() != nil {
 			h.log.Debug("client disconnected during chat", slog.String("thread_id", threadID))
 			return
