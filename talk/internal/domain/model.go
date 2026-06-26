@@ -64,7 +64,7 @@ type Model struct {
 var registry = []Model{
 	{Name: "haiku-4.5", OLTPProvider: OLTPProviderAnthropic, APIClient: APIClientAnthropic, APIKeyName: "ANTHROPIC_API_KEY", APIModelID: "claude-haiku-4-5", ThinkingStyle: ThinkingStyleBudget, MaxOutputTokens: 8192},
 	{Name: "sonnet-4.6", OLTPProvider: OLTPProviderAnthropic, APIClient: APIClientAnthropic, APIKeyName: "ANTHROPIC_API_KEY", APIModelID: "claude-sonnet-4-5", ThinkingStyle: ThinkingStyleBudget, MaxOutputTokens: 16384},
-	{Name: "opus", OLTPProvider: OLTPProviderAnthropic, APIClient: APIClientAnthropic, APIKeyName: "ANTHROPIC_API_KEY", APIModelID: "claude-opus-4", ThinkingStyle: ThinkingStyleAdaptive, MaxOutputTokens: 16384},
+	{Name: "opus-4.6", OLTPProvider: OLTPProviderAnthropic, APIClient: APIClientAnthropic, APIKeyName: "ANTHROPIC_API_KEY", APIModelID: "claude-opus-4-6", ThinkingStyle: ThinkingStyleAdaptive, MaxOutputTokens: 16384},
 	{Name: "o4-mini", OLTPProvider: OLTPProviderOpenAI, APIClient: APIClientOpenAI, APIKeyName: "OPENAI_API_KEY", APIModelID: "o4-mini", ThinkingStyle: ThinkingStyleEffort, MaxOutputTokens: 16384},
 	{Name: "gpt-5.4", OLTPProvider: OLTPProviderOpenAI, APIClient: APIClientOpenAI, APIKeyName: "OPENAI_API_KEY", APIModelID: "gpt-4o", MaxOutputTokens: 16384},
 	{Name: "mistral-small", OLTPProvider: OLTPProviderMistral, APIClient: APIClientOpenAI, APIKeyName: "MISTRAL_API_KEY", URL: "https://api.mistral.ai/v1", APIModelID: "mistral-small-2506", MaxOutputTokens: 8192},
