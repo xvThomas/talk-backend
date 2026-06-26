@@ -146,22 +146,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // Returns an error if forwardedProps is not a map or the model key is missing/empty.
 func extractModelAlias(forwardedProps any) (string, error) {
 	if forwardedProps == nil {
-		return "", fmt.Errorf("the model field is required.")
+		return "", fmt.Errorf("the model field is required")
 	}
 
 	props, ok := forwardedProps.(map[string]any)
 	if !ok {
-		return "", fmt.Errorf("the model field is required.")
+		return "", fmt.Errorf("the model field is required")
 	}
 
 	modelRaw, exists := props["model"]
 	if !exists {
-		return "", fmt.Errorf("the model field is required.")
+		return "", fmt.Errorf("the model field is required")
 	}
 
 	model, ok := modelRaw.(string)
 	if !ok || model == "" {
-		return "", fmt.Errorf("the model field is required.")
+		return "", fmt.Errorf("the model field is required")
 	}
 
 	return model, nil

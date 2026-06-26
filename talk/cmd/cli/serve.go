@@ -222,11 +222,12 @@ func userFacingError(err error) error {
 		return fmt.Errorf("request was cancelled")
 	case errors.Is(err, context.DeadlineExceeded):
 		return fmt.Errorf("request timed out, please try again")
-	case errors.Is(err, config.ErrMissingEnvVar) ||
-		errors.Is(err, domain.ErrSystemPrompt):
-		return fmt.Errorf("the assistant is not configured correctly, please contact the administrator")
+	case errors.Is(err, config.ErrMissingEnvVar):
+		return fmt.Errorf("Missing environment variable, please contact the administrator")
+	case errors.Is(err, domain.ErrSystemPrompt):
+		return fmt.Errorf("System prompt error, please contact the administrator")
 	case errors.Is(err, domain.ErrMaxToolIterations):
-		return fmt.Errorf("J'ai atteint la limite d'appels d'outils sans pouvoir finaliser. Essayez de reformuler votre question de manière plus spécifique.")
+		return fmt.Errorf("I reached the tool call limit without being able to finalize. Try rephrasing your question more specifically")
 	case errors.As(err, new(*sqlitestore.ErrStore)):
 		return fmt.Errorf("service temporarily unavailable, please try again")
 	default:
