@@ -11,6 +11,7 @@ import (
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/google/uuid"
+	"github.com/xvThomas/talk-backend/talk/internal/domain"
 )
 
 // Handler handles AG-UI protocol HTTP requests.
@@ -27,7 +28,8 @@ type ChatFunc func(ctx context.Context, threadID string, modelAlias string, mess
 
 // ChatOptions carries per-request options for the chat function.
 type ChatOptions struct {
-	SSEWriter *SSEWriter
+	SSEWriter      *SSEWriter
+	ThinkingEffort domain.ThinkingEffort
 }
 
 // NewHandler creates an AG-UI protocol handler.
@@ -104,7 +106,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Get response from chat function.
 	if h.chatFn != nil {
-		err = h.chatFn(ctx, threadID, modelAlias, input.Messages, ChatOptions{SSEWriter: sse})
+		thinkingEffort := extractThinkingEffort(input.ForwardedProps)
+		err = h.chatFn(ctx, threadID, modelAlias, input.Messages, ChatOptions{
+			SSEWriter:      sse,
+			ThinkingEffort: thinkingEffort,
+		})
 		if ctx.Err() != nil {
 			h.log.Debug("client disconnected during chat", slog.String("thread_id", threadID))
 			return
@@ -158,4 +164,34 @@ func (h *Handler) isModelSupported(alias string) bool {
 		}
 	}
 	return false
+}
+
+// extractThinkingEffort extracts the thinking effort level from forwardedProps.
+// Returns the zero value (empty string = off) for missing, invalid, or unrecognized values.
+func extractThinkingEffort(forwardedProps any) domain.ThinkingEffort {
+	if forwardedProps == nil {
+		return ""
+	}
+	props, ok := forwardedProps.(map[string]any)
+	if !ok {
+		return ""
+	}
+	raw, exists := props["thinkingEffort"]
+	if !exists {
+		return ""
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	switch value {
+	case "low":
+		return domain.ThinkingLow
+	case "medium":
+		return domain.ThinkingMedium
+	case "high":
+		return domain.ThinkingHigh
+	default:
+		return ""
+	}
 }

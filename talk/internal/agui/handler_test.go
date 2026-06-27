@@ -528,3 +528,274 @@ func TestHandler_MultiIterationToolLoop(t *testing.T) {
 		t.Errorf("iter2 toolCallId = %v, want %q", evts[4]["toolCallId"], "call-iter2")
 	}
 }
+
+func TestExtractThinkingEffort(t *testing.T) {
+	tests := []struct {
+		name  string
+		props any
+		want  domain.ThinkingEffort
+	}{
+		{name: "nil props", props: nil, want: ""},
+		{name: "not a map", props: "string", want: ""},
+		{name: "missing key", props: map[string]any{"model": "x"}, want: ""},
+		{name: "empty string", props: map[string]any{"thinkingEffort": ""}, want: ""},
+		{name: "off", props: map[string]any{"thinkingEffort": "off"}, want: ""},
+		{name: "invalid value", props: map[string]any{"thinkingEffort": "extreme"}, want: ""},
+		{name: "non-string value", props: map[string]any{"thinkingEffort": 42}, want: ""},
+		{name: "low", props: map[string]any{"thinkingEffort": "low"}, want: domain.ThinkingLow},
+		{name: "medium", props: map[string]any{"thinkingEffort": "medium"}, want: domain.ThinkingMedium},
+		{name: "high", props: map[string]any{"thinkingEffort": "high"}, want: domain.ThinkingHigh},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractThinkingEffort(tt.props)
+			if got != tt.want {
+				t.Errorf("extractThinkingEffort(%v) = %q, want %q", tt.props, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHandler_ThinkingEffortPassedToChatFunc(t *testing.T) {
+	var receivedEffort domain.ThinkingEffort
+	chatFn := func(_ context.Context, _ string, _ string, _ []types.Message, opts ChatOptions) error {
+		receivedEffort = opts.ThinkingEffort
+		return nil
+	}
+
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
+
+	body := `{"messages":[{"id":"m1","role":"user","content":"hi"}],"forwardedProps":{"model":"sonnet-4.6","thinkingEffort":"high"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if receivedEffort != domain.ThinkingHigh {
+		t.Errorf("chatFn received thinkingEffort = %q, want %q", receivedEffort, domain.ThinkingHigh)
+	}
+}
+
+func TestHandler_ReasoningEventsInSSEStream(t *testing.T) {
+	chatFn := func(_ context.Context, _ string, _ string, _ []types.Message, opts ChatOptions) error {
+		emitter := NewAGUIEmitter(opts.SSEWriter, nil)
+		return emitter.HandleMessageEvent(context.Background(), domain.MessageEvent{
+			Message: domain.Message{
+				Role:     domain.RoleAssistant,
+				Content:  "The answer is 42.",
+				Thinking: "Let me reason about this...",
+			},
+		})
+	}
+
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
+
+	body := `{"messages":[{"id":"m1","role":"user","content":"what is the meaning?"}],"forwardedProps":{"model":"sonnet-4.6","thinkingEffort":"high"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	evts := parseSSEEvents(t, rec.Body.Bytes())
+
+	// RUN_STARTED + 5 reasoning + 3 text + RUN_FINISHED = 10
+	if len(evts) != 10 {
+		for i, e := range evts {
+			t.Logf("event[%d]: %v", i, e["type"])
+		}
+		t.Fatalf("got %d events, want 10", len(evts))
+	}
+
+	assertEventType(t, evts[0], events.EventTypeRunStarted)
+	assertEventType(t, evts[1], events.EventTypeReasoningStart)
+	assertEventType(t, evts[2], events.EventTypeReasoningMessageStart)
+	assertEventType(t, evts[3], events.EventTypeReasoningMessageContent)
+	assertEventType(t, evts[4], events.EventTypeReasoningMessageEnd)
+	assertEventType(t, evts[5], events.EventTypeReasoningEnd)
+	assertEventType(t, evts[6], events.EventTypeTextMessageStart)
+	assertEventType(t, evts[7], events.EventTypeTextMessageContent)
+	assertEventType(t, evts[8], events.EventTypeTextMessageEnd)
+	assertEventType(t, evts[9], events.EventTypeRunFinished)
+}
+
+func TestHandler_NoReasoningWhenEffortAbsent(t *testing.T) {
+	chatFn := func(_ context.Context, _ string, _ string, _ []types.Message, opts ChatOptions) error {
+		emitter := NewAGUIEmitter(opts.SSEWriter, nil)
+		return emitter.HandleMessageEvent(context.Background(), domain.MessageEvent{
+			Message: domain.Message{
+				Role:    domain.RoleAssistant,
+				Content: "response",
+			},
+		})
+	}
+
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
+
+	// No thinkingEffort in forwardedProps.
+	body := `{"messages":[{"id":"m1","role":"user","content":"hi"}],"forwardedProps":{"model":"sonnet-4.6"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	evts := parseSSEEvents(t, rec.Body.Bytes())
+
+	// RUN_STARTED + 3 text + RUN_FINISHED = 5 — no reasoning events.
+	if len(evts) != 5 {
+		for i, e := range evts {
+			t.Logf("event[%d]: %v", i, e["type"])
+		}
+		t.Fatalf("got %d events, want 5", len(evts))
+	}
+
+	for _, evt := range evts {
+		evtType, _ := evt["type"].(string)
+		if strings.HasPrefix(evtType, "REASONING_") {
+			t.Errorf("unexpected reasoning event: %s", evtType)
+		}
+	}
+}
+
+func TestHandler_NoReasoningWhenThinkingEmpty(t *testing.T) {
+	chatFn := func(_ context.Context, _ string, _ string, _ []types.Message, opts ChatOptions) error {
+		emitter := NewAGUIEmitter(opts.SSEWriter, nil)
+		// Thinking effort was set but LLM returned empty thinking.
+		return emitter.HandleMessageEvent(context.Background(), domain.MessageEvent{
+			Message: domain.Message{
+				Role:     domain.RoleAssistant,
+				Content:  "response",
+				Thinking: "",
+			},
+		})
+	}
+
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
+
+	body := `{"messages":[{"id":"m1","role":"user","content":"hi"}],"forwardedProps":{"model":"sonnet-4.6","thinkingEffort":"high"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	evts := parseSSEEvents(t, rec.Body.Bytes())
+
+	// RUN_STARTED + 3 text + RUN_FINISHED = 5 — no reasoning.
+	if len(evts) != 5 {
+		for i, e := range evts {
+			t.Logf("event[%d]: %v", i, e["type"])
+		}
+		t.Fatalf("got %d events, want 5", len(evts))
+	}
+
+	for _, evt := range evts {
+		evtType, _ := evt["type"].(string)
+		if strings.HasPrefix(evtType, "REASONING_") {
+			t.Errorf("unexpected reasoning event: %s", evtType)
+		}
+	}
+}
+
+func TestHandler_InvalidThinkingEffortDefaultsOff(t *testing.T) {
+	var receivedEffort domain.ThinkingEffort
+	chatFn := func(_ context.Context, _ string, _ string, _ []types.Message, opts ChatOptions) error {
+		receivedEffort = opts.ThinkingEffort
+		return nil
+	}
+
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
+
+	body := `{"messages":[{"id":"m1","role":"user","content":"hi"}],"forwardedProps":{"model":"sonnet-4.6","thinkingEffort":"extreme"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if receivedEffort != "" {
+		t.Errorf("chatFn received thinkingEffort = %q, want empty (off)", receivedEffort)
+	}
+}
+
+func TestHandler_ReasoningWithToolLoop(t *testing.T) {
+	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, opts ChatOptions) error {
+		emitter := NewAGUIEmitter(opts.SSEWriter, nil)
+
+		// Iteration 1: LLM returns thinking + tool call.
+		_ = emitter.HandleMessageEvent(ctx, domain.MessageEvent{
+			Message: domain.Message{
+				Role:      domain.RoleAssistant,
+				Content:   "",
+				Thinking:  "I should search for this.",
+				ToolCalls: []domain.ToolCall{{ID: "call-1", Name: "search"}},
+			},
+		})
+		tc1 := domain.ToolCall{ID: "call-1", Name: "search", Input: map[string]any{"q": "test"}}
+		_ = emitter.HandleToolCallStart(ctx, domain.ToolCallEvent{TurnID: "turn-1", ToolCall: tc1})
+		_ = emitter.HandleToolCallEnd(ctx, domain.ToolCallEndEvent{TurnID: "turn-1", ToolCall: tc1, Result: domain.ToolResult{ToolCallID: "call-1", Content: "result"}})
+
+		// Iteration 2: LLM returns thinking + final answer.
+		return emitter.HandleMessageEvent(ctx, domain.MessageEvent{
+			Message: domain.Message{
+				Role:     domain.RoleAssistant,
+				Content:  "Here's the final answer.",
+				Thinking: "Now I can answer.",
+			},
+		})
+	}
+
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
+
+	body := `{"messages":[{"id":"m1","role":"user","content":"search something"}],"forwardedProps":{"model":"sonnet-4.6","thinkingEffort":"high"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	evts := parseSSEEvents(t, rec.Body.Bytes())
+
+	// Expected sequence:
+	// RUN_STARTED
+	// REASONING_START, REASONING_MESSAGE_START, REASONING_MESSAGE_CONTENT, REASONING_MESSAGE_END, REASONING_END (iter 1)
+	// TOOL_CALL_START, TOOL_CALL_ARGS, TOOL_CALL_END
+	// REASONING_START, REASONING_MESSAGE_START, REASONING_MESSAGE_CONTENT, REASONING_MESSAGE_END, REASONING_END (iter 2)
+	// TEXT_MESSAGE_START, TEXT_MESSAGE_CONTENT, TEXT_MESSAGE_END
+	// RUN_FINISHED
+	// Total: 1 + 5 + 3 + 5 + 3 + 1 = 18
+	if len(evts) != 18 {
+		for i, e := range evts {
+			t.Logf("event[%d]: %v", i, e["type"])
+		}
+		t.Fatalf("got %d events, want 18", len(evts))
+	}
+
+	assertEventType(t, evts[0], events.EventTypeRunStarted)
+	// Iteration 1: reasoning
+	assertEventType(t, evts[1], events.EventTypeReasoningStart)
+	assertEventType(t, evts[2], events.EventTypeReasoningMessageStart)
+	assertEventType(t, evts[3], events.EventTypeReasoningMessageContent)
+	assertEventType(t, evts[4], events.EventTypeReasoningMessageEnd)
+	assertEventType(t, evts[5], events.EventTypeReasoningEnd)
+	// Iteration 1: tool calls
+	assertEventType(t, evts[6], events.EventTypeToolCallStart)
+	assertEventType(t, evts[7], events.EventTypeToolCallArgs)
+	assertEventType(t, evts[8], events.EventTypeToolCallEnd)
+	// Iteration 2: reasoning
+	assertEventType(t, evts[9], events.EventTypeReasoningStart)
+	assertEventType(t, evts[10], events.EventTypeReasoningMessageStart)
+	assertEventType(t, evts[11], events.EventTypeReasoningMessageContent)
+	assertEventType(t, evts[12], events.EventTypeReasoningMessageEnd)
+	assertEventType(t, evts[13], events.EventTypeReasoningEnd)
+	// Iteration 2: text
+	assertEventType(t, evts[14], events.EventTypeTextMessageStart)
+	assertEventType(t, evts[15], events.EventTypeTextMessageContent)
+	assertEventType(t, evts[16], events.EventTypeTextMessageEnd)
+	assertEventType(t, evts[17], events.EventTypeRunFinished)
+
+	// Verify reasoning content per iteration.
+	if delta, _ := evts[3]["delta"].(string); delta != "I should search for this." {
+		t.Errorf("iter1 reasoning delta = %q, want %q", delta, "I should search for this.")
+	}
+	if delta, _ := evts[11]["delta"].(string); delta != "Now I can answer." {
+		t.Errorf("iter2 reasoning delta = %q, want %q", delta, "Now I can answer.")
+	}
+}

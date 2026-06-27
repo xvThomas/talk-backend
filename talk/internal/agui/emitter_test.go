@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/xvThomas/talk-backend/talk/internal/domain"
 )
 
@@ -249,4 +250,207 @@ func parseSSEData(t *testing.T, data []byte) []map[string]any {
 		result = append(result, m)
 	}
 	return result
+}
+
+func TestAGUIEmitter_ReasoningThenText(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sse, err := NewSSEWriter(rec, nil)
+	if err != nil {
+		t.Fatalf("creating SSEWriter: %v", err)
+	}
+
+	emitter := NewAGUIEmitter(sse, nil)
+
+	event := domain.MessageEvent{
+		Message: domain.Message{
+			Role:     domain.RoleAssistant,
+			Content:  "The answer is 42.",
+			Thinking: "Let me think about this...",
+		},
+	}
+
+	if err := emitter.HandleMessageEvent(context.Background(), event); err != nil {
+		t.Fatalf("HandleMessageEvent error: %v", err)
+	}
+
+	evts := parseSSEData(t, rec.Body.Bytes())
+
+	// 5 reasoning + 3 text = 8 events
+	if len(evts) != 8 {
+		for i, e := range evts {
+			t.Logf("event[%d]: %v", i, e["type"])
+		}
+		t.Fatalf("got %d events, want 8", len(evts))
+	}
+
+	assertSSEEventType(t, evts[0], events.EventTypeReasoningStart)
+	assertSSEEventType(t, evts[1], events.EventTypeReasoningMessageStart)
+	assertSSEEventType(t, evts[2], events.EventTypeReasoningMessageContent)
+	assertSSEEventType(t, evts[3], events.EventTypeReasoningMessageEnd)
+	assertSSEEventType(t, evts[4], events.EventTypeReasoningEnd)
+	assertSSEEventType(t, evts[5], events.EventTypeTextMessageStart)
+	assertSSEEventType(t, evts[6], events.EventTypeTextMessageContent)
+	assertSSEEventType(t, evts[7], events.EventTypeTextMessageEnd)
+
+	// Verify reasoning content.
+	if got := evts[2]["delta"]; got != "Let me think about this..." {
+		t.Errorf("reasoning delta = %q, want %q", got, "Let me think about this...")
+	}
+	// Verify reasoning role.
+	if got := evts[1]["role"]; got != "reasoning" {
+		t.Errorf("reasoning role = %q, want %q", got, "reasoning")
+	}
+	// Verify reasoning messageId consistency.
+	reasoningID := evts[0]["messageId"]
+	for i := 1; i <= 4; i++ {
+		if evts[i]["messageId"] != reasoningID {
+			t.Errorf("event[%d] messageId = %v, want %v", i, evts[i]["messageId"], reasoningID)
+		}
+	}
+	// Verify text content.
+	if got := evts[6]["delta"]; got != "The answer is 42." {
+		t.Errorf("text delta = %q, want %q", got, "The answer is 42.")
+	}
+}
+
+func TestAGUIEmitter_ReasoningWithToolCalls(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sse, err := NewSSEWriter(rec, nil)
+	if err != nil {
+		t.Fatalf("creating SSEWriter: %v", err)
+	}
+
+	emitter := NewAGUIEmitter(sse, nil)
+
+	// Assistant message with thinking AND tool calls → reasoning emitted, no text.
+	event := domain.MessageEvent{
+		Message: domain.Message{
+			Role:      domain.RoleAssistant,
+			Content:   "",
+			Thinking:  "I need to call a tool.",
+			ToolCalls: []domain.ToolCall{{ID: "tc-1", Name: "search"}},
+		},
+	}
+
+	if err := emitter.HandleMessageEvent(context.Background(), event); err != nil {
+		t.Fatalf("HandleMessageEvent error: %v", err)
+	}
+
+	evts := parseSSEData(t, rec.Body.Bytes())
+
+	// Only 5 reasoning events, no text events.
+	if len(evts) != 5 {
+		for i, e := range evts {
+			t.Logf("event[%d]: %v", i, e["type"])
+		}
+		t.Fatalf("got %d events, want 5", len(evts))
+	}
+
+	assertSSEEventType(t, evts[0], events.EventTypeReasoningStart)
+	assertSSEEventType(t, evts[1], events.EventTypeReasoningMessageStart)
+	assertSSEEventType(t, evts[2], events.EventTypeReasoningMessageContent)
+	assertSSEEventType(t, evts[3], events.EventTypeReasoningMessageEnd)
+	assertSSEEventType(t, evts[4], events.EventTypeReasoningEnd)
+}
+
+func TestAGUIEmitter_NoReasoningWhenThinkingEmpty(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sse, err := NewSSEWriter(rec, nil)
+	if err != nil {
+		t.Fatalf("creating SSEWriter: %v", err)
+	}
+
+	emitter := NewAGUIEmitter(sse, nil)
+
+	event := domain.MessageEvent{
+		Message: domain.Message{
+			Role:     domain.RoleAssistant,
+			Content:  "Simple response.",
+			Thinking: "",
+		},
+	}
+
+	if err := emitter.HandleMessageEvent(context.Background(), event); err != nil {
+		t.Fatalf("HandleMessageEvent error: %v", err)
+	}
+
+	evts := parseSSEData(t, rec.Body.Bytes())
+
+	// Only 3 text events, no reasoning.
+	if len(evts) != 3 {
+		for i, e := range evts {
+			t.Logf("event[%d]: %v", i, e["type"])
+		}
+		t.Fatalf("got %d events, want 3", len(evts))
+	}
+
+	assertSSEEventType(t, evts[0], events.EventTypeTextMessageStart)
+	assertSSEEventType(t, evts[1], events.EventTypeTextMessageContent)
+	assertSSEEventType(t, evts[2], events.EventTypeTextMessageEnd)
+}
+
+func TestAGUIEmitter_NoReasoningForUserMessage(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sse, err := NewSSEWriter(rec, nil)
+	if err != nil {
+		t.Fatalf("creating SSEWriter: %v", err)
+	}
+
+	emitter := NewAGUIEmitter(sse, nil)
+
+	event := domain.MessageEvent{
+		Message: domain.Message{
+			Role:     domain.RoleUser,
+			Content:  "hi",
+			Thinking: "this should not emit anything",
+		},
+	}
+
+	if err := emitter.HandleMessageEvent(context.Background(), event); err != nil {
+		t.Fatalf("HandleMessageEvent error: %v", err)
+	}
+
+	evts := parseSSEData(t, rec.Body.Bytes())
+	if len(evts) != 0 {
+		t.Errorf("got %d events for user message with thinking, want 0", len(evts))
+	}
+}
+
+func TestAGUIEmitter_ReasoningCancelledContext(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sse, err := NewSSEWriter(rec, nil)
+	if err != nil {
+		t.Fatalf("creating SSEWriter: %v", err)
+	}
+
+	emitter := NewAGUIEmitter(sse, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	event := domain.MessageEvent{
+		Message: domain.Message{
+			Role:     domain.RoleAssistant,
+			Content:  "answer",
+			Thinking: "thinking...",
+		},
+	}
+
+	if err := emitter.HandleMessageEvent(ctx, event); err != nil {
+		t.Fatalf("expected nil error on cancelled context, got: %v", err)
+	}
+
+	// No events should be written when context is cancelled.
+	evts := parseSSEData(t, rec.Body.Bytes())
+	if len(evts) != 0 {
+		t.Errorf("got %d events on cancelled context, want 0", len(evts))
+	}
+}
+
+func assertSSEEventType(t *testing.T, m map[string]any, want events.EventType) {
+	t.Helper()
+	got, _ := m["type"].(string)
+	if got != string(want) {
+		t.Errorf("event type = %q, want %q", got, want)
+	}
 }

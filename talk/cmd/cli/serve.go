@@ -125,6 +125,10 @@ func runServe(ctx context.Context, port string) error {
 			return fmt.Errorf("no user message found in request")
 		}
 
+		if opts.ThinkingEffort != "" {
+			manager.SetThinkingEffort(opts.ThinkingEffort)
+		}
+
 		_, chatErr := manager.Chat(reqCtx, userInput)
 		if chatErr != nil {
 			log.Error("chat error",

@@ -27,12 +27,35 @@ func NewAGUIEmitter(sse *SSEWriter, log *slog.Logger) *AGUIEmitter {
 	return &AGUIEmitter{sse: sse, log: log}
 }
 
-// HandleMessageEvent emits TEXT_MESSAGE_START → TEXT_MESSAGE_CONTENT → TEXT_MESSAGE_END
-// for final assistant messages (no tool calls, non-empty content).
+// HandleMessageEvent emits REASONING_* events for thinking content (any assistant message),
+// then TEXT_MESSAGE_START → TEXT_MESSAGE_CONTENT → TEXT_MESSAGE_END for final assistant messages
+// (no tool calls, non-empty content).
 func (e *AGUIEmitter) HandleMessageEvent(ctx context.Context, event domain.MessageEvent) error {
 	if event.Message.Role != domain.RoleAssistant {
 		return nil
 	}
+
+	// Emit reasoning events if thinking content is present (independent of tool calls).
+	if event.Message.Thinking != "" {
+		reasoningID := uuid.New().String()
+		if err := e.writeEvent(ctx, events.NewReasoningStartEvent(reasoningID)); err != nil {
+			return nil
+		}
+		if err := e.writeEvent(ctx, events.NewReasoningMessageStartEvent(reasoningID, "reasoning")); err != nil {
+			return nil
+		}
+		if err := e.writeEvent(ctx, events.NewReasoningMessageContentEvent(reasoningID, event.Message.Thinking)); err != nil {
+			return nil
+		}
+		if err := e.writeEvent(ctx, events.NewReasoningMessageEndEvent(reasoningID)); err != nil {
+			return nil
+		}
+		if err := e.writeEvent(ctx, events.NewReasoningEndEvent(reasoningID)); err != nil {
+			return nil
+		}
+	}
+
+	// Emit text message events only for final messages (no tool calls, non-empty content).
 	if len(event.Message.ToolCalls) > 0 {
 		return nil
 	}
