@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/xvThomas/talk-backend/talk/internal/domain"
 )
 
 // mcpTool constructs an mcp.Tool for testing.
@@ -187,3 +188,79 @@ func TestToolAdapter_OutputSchema(t *testing.T) {
 		t.Errorf("expected type=object, got %v", schema["type"])
 	}
 }
+
+func TestToolAdapter_InputSchema_MapDirectAssertion(t *testing.T) {
+	adapter := &mcpToolAdapter{
+		serverName: "test-server",
+		tool: mcpTool("my-tool", "does things", map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"city": map[string]any{"type": "string"},
+			},
+		}),
+	}
+
+	schema, err := adapter.InputSchema()
+	if err != nil {
+		t.Fatalf("InputSchema error: %v", err)
+	}
+	if schema["type"] != "object" {
+		t.Errorf("expected type=object, got %v", schema["type"])
+	}
+}
+
+func TestToolAdapter_InputSchema_FallbackMarshalUnmarshal(t *testing.T) {
+	type schemaDTO struct {
+		Type string `json:"type"`
+	}
+
+	adapter := &mcpToolAdapter{
+		serverName: "test-server",
+		tool:       mcpTool("my-tool", "does things", schemaDTO{Type: "object"}),
+	}
+
+	schema, err := adapter.InputSchema()
+	if err != nil {
+		t.Fatalf("InputSchema fallback error: %v", err)
+	}
+	if schema["type"] != "object" {
+		t.Errorf("expected type=object, got %v", schema["type"])
+	}
+}
+
+func TestToolAdapter_ExtractTextContent(t *testing.T) {
+	content := []mcp.Content{
+		&mcp.TextContent{Text: "line-1"},
+		&mcp.TextContent{Text: "line-2"},
+	}
+
+	got := extractTextContent(content)
+	if got != "line-1\nline-2" {
+		t.Fatalf("extractTextContent = %q, want %q", got, "line-1\\nline-2")
+	}
+}
+
+func TestManager_RebuildToolsExcludingFiltersByServerName(t *testing.T) {
+	m := NewManager(&stubRegistry{})
+	m.statuses = []ServerStatus{
+		{Config: ServerConfig{ID: "srv-1", Name: "alpha"}},
+		{Config: ServerConfig{ID: "srv-2", Name: "beta"}},
+	}
+	m.tools = []domain.Tool{
+		&mcpToolAdapter{serverName: "alpha", tool: mcp.Tool{Name: "tool-a"}},
+		&mcpToolAdapter{serverName: "beta", tool: mcp.Tool{Name: "tool-b"}},
+	}
+
+	m.rebuildToolsExcluding("srv-1")
+
+	if len(m.tools) != 1 {
+		t.Fatalf("expected 1 tool after exclude, got %d", len(m.tools))
+	}
+	if adapter, ok := m.tools[0].(*mcpToolAdapter); !ok || adapter.serverName != "beta" {
+		t.Fatalf("remaining tool server = %v, want beta", m.tools[0])
+	}
+	if len(m.statuses) != 1 || m.statuses[0].Config.ID != "srv-2" {
+		t.Fatalf("unexpected statuses after exclude: %+v", m.statuses)
+	}
+}
+
