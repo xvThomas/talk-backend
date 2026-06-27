@@ -2,9 +2,12 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -111,6 +114,45 @@ func TestManager_Refresh_Empty(t *testing.T) {
 	count := m.Refresh(context.Background())
 	if count != 0 {
 		t.Errorf("expected 0 tools from refresh, got %d", count)
+	}
+}
+
+func TestManager_Connect_ConnectionFailure(t *testing.T) {
+	reg := &stubRegistry{}
+	m := NewManager(reg)
+
+	cfg := ServerConfig{ID: "srv-1", Name: "broken", URL: "http://127.0.0.1:1/mcp", AuthType: AuthTypeNone}
+	status, err := m.Connect(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("expected connection error")
+	}
+	if status == nil {
+		t.Fatal("expected non-nil status")
+	}
+	if status.Connected {
+		t.Fatal("expected disconnected status")
+	}
+	if status.Error == "" {
+		t.Fatal("expected status error message")
+	}
+	if len(m.Statuses()) != 0 {
+		t.Fatalf("expected manager statuses to remain empty on connect error, got %d", len(m.Statuses()))
+	}
+}
+
+func TestManager_ConnectWrapsServerIdentityInError(t *testing.T) {
+	m := NewManager(&stubRegistry{})
+	cfg := ServerConfig{ID: "srv-1", Name: "failing-server", URL: "http://127.0.0.1:1/mcp", AuthType: AuthTypeNone}
+
+	_, err := m.connect(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("expected connect() error")
+	}
+	if !strings.Contains(err.Error(), "failing-server") {
+		t.Fatalf("expected server name in error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "http://127.0.0.1:1/mcp") {
+		t.Fatalf("expected server URL in error, got: %v", err)
 	}
 }
 
@@ -264,3 +306,80 @@ func TestManager_RebuildToolsExcludingFiltersByServerName(t *testing.T) {
 	}
 }
 
+func connectInMemorySession(t *testing.T, server *mcp.Server) *mcp.ClientSession {
+	t.Helper()
+	ctx := context.Background()
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	if _, err := server.Connect(ctx, serverTransport, nil); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	client := mcp.NewClient(&mcp.Implementation{Name: "client", Version: "v0.0.1"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	return session
+}
+
+func TestToolAdapter_Execute_Success(t *testing.T) {
+	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "v0.0.1"}, nil)
+	server.AddTool(&mcp.Tool{
+		Name:        "echo",
+		Description: "echoes text",
+		InputSchema: map[string]any{"type": "object", "properties": map[string]any{"msg": map[string]any{"type": "string"}}},
+	}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args struct {
+			Msg string `json:"msg"`
+		}
+		if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
+			return nil, err
+		}
+		msg := args.Msg
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "echo:" + msg}}}, nil
+	})
+
+	session := connectInMemorySession(t, server)
+	defer func() { _ = session.Close() }()
+
+	adapter := &mcpToolAdapter{
+		serverName: "test-server",
+		tool:       mcpTool("echo", "echoes text", nil),
+		session:    session,
+	}
+
+	got, err := adapter.Execute(context.Background(), map[string]any{"msg": "hello"})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got["content"] != "echo:hello" {
+		t.Fatalf("Execute() content = %v, want %q", got["content"], "echo:hello")
+	}
+}
+
+func TestToolAdapter_Execute_ToolError(t *testing.T) {
+	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "v0.0.1"}, nil)
+	server.AddTool(&mcp.Tool{
+		Name:        "fail",
+		Description: "always fails",
+		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return nil, errors.New("boom")
+	})
+
+	session := connectInMemorySession(t, server)
+	defer func() { _ = session.Close() }()
+
+	adapter := &mcpToolAdapter{
+		serverName: "test-server",
+		tool:       mcpTool("fail", "always fails", nil),
+		session:    session,
+	}
+
+	_, err := adapter.Execute(context.Background(), map[string]any{})
+	if err == nil {
+		t.Fatal("expected Execute() error")
+	}
+	if !strings.Contains(err.Error(), `calling tool "fail" on server "test-server"`) {
+		t.Fatalf("unexpected Execute() error: %v", err)
+	}
+}

@@ -232,11 +232,11 @@ func userFacingError(err error) error {
 	case errors.Is(err, context.DeadlineExceeded):
 		return fmt.Errorf("request timed out, please try again")
 	case errors.Is(err, config.ErrMissingEnvVar):
-		return fmt.Errorf("Missing environment variable, please contact the administrator")
+		return fmt.Errorf("missing environment variable, please contact the administrator")
 	case errors.Is(err, domain.ErrSystemPrompt):
-		return fmt.Errorf("System prompt error, please contact the administrator")
+		return fmt.Errorf("system prompt error, please contact the administrator")
 	case errors.Is(err, domain.ErrMaxToolIterations):
-		return fmt.Errorf("I reached the tool call limit without being able to finalize. Try rephrasing your question more specifically")
+		return fmt.Errorf("i reached the tool call limit without being able to finalize. try rephrasing your question more specifically")
 	case errors.As(err, new(*sqlitestore.ErrStore)):
 		return fmt.Errorf("service temporarily unavailable, please try again")
 	default:

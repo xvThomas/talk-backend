@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -250,5 +251,20 @@ func TestUserFacingError(t *testing.T) {
 				t.Errorf("userFacingError() = %q, want %q", got.Error(), tt.want)
 			}
 		})
+	}
+}
+
+func TestMethodNotAllowed(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/agent", nil)
+	rec := httptest.NewRecorder()
+
+	methodNotAllowed(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+	body := rec.Body.String()
+	if body == "" || !strings.Contains(body, "method not allowed") {
+		t.Fatalf("body = %q, want method not allowed message", body)
 	}
 }

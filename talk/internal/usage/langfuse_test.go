@@ -187,9 +187,9 @@ func TestLangfuseUsageReporter_OTLPConversions(t *testing.T) {
 			Input:  "hello",
 			Output: "world",
 		},
-		Usage: domain.Usage{InputTokens: 10, OutputTokens: 20},
-		StartedAt: now.Add(-2 * time.Second),
-		EndedAt:   now,
+		Usage:      domain.Usage{InputTokens: 10, OutputTokens: 20},
+		StartedAt:  now.Add(-2 * time.Second),
+		EndedAt:    now,
 		TurnSpanID: domain.GenerateSpanID(),
 	}
 	msgTrace, err := r.apiCallToOTLP(msg)
@@ -204,17 +204,17 @@ func TestLangfuseUsageReporter_OTLPConversions(t *testing.T) {
 	}
 
 	turn := domain.TurnEvent{
-		TurnID:     domain.GenerateTraceID(),
-		TurnSpanID: domain.GenerateSpanID(),
-		StartedAt:  now.Add(-4 * time.Second),
-		EndedAt:    now,
+		TurnID:       domain.GenerateTraceID(),
+		TurnSpanID:   domain.GenerateSpanID(),
+		StartedAt:    now.Add(-4 * time.Second),
+		EndedAt:      now,
 		SessionScope: domain.NewSessionScope("session-1", "user-1"),
-		Model:      domain.Model{Name: "sonnet-4.6"},
-		TotalUsage: domain.Usage{InputTokens: 30, OutputTokens: 40},
-		CallCount:  2,
-		Input:      "turn input",
-		Output:     "turn output",
-		ToolCalls:  []domain.ToolCall{{ID: "tc-2", Name: "search"}},
+		Model:        domain.Model{Name: "sonnet-4.6"},
+		TotalUsage:   domain.Usage{InputTokens: 30, OutputTokens: 40},
+		CallCount:    2,
+		Input:        "turn input",
+		Output:       "turn output",
+		ToolCalls:    []domain.ToolCall{{ID: "tc-2", Name: "search"}},
 	}
 	turnTrace, err := r.conversationTurnToOTLP(turn)
 	if err != nil {

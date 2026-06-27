@@ -1,8 +1,12 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	prompt "github.com/c-bata/go-prompt"
 )
 
 func TestCommandSuggestionsTopLevel(t *testing.T) {
@@ -74,5 +78,50 @@ func TestPersistHistorySkipsConsecutiveDuplicates(t *testing.T) {
 	}
 	if entries[0] != "/help" || entries[1] != "hello" {
 		t.Fatalf("unexpected history entries: %+v", entries)
+	}
+}
+
+func TestStripANSI(t *testing.T) {
+	got := stripANSI("\x1b[31mHello\x1b[0m world")
+	if got != "Hello world" {
+		t.Fatalf("stripANSI() = %q, want %q", got, "Hello world")
+	}
+}
+
+func TestGoPromptReaderComplete(t *testing.T) {
+	gr := &GoPromptReader{}
+	suggestions := gr.complete(*prompt.NewDocument())
+	if suggestions != nil {
+		t.Fatalf("expected nil suggestions for empty doc, got: %+v", suggestions)
+	}
+}
+
+func TestNewGoPromptReader(t *testing.T) {
+	dir := t.TempDir()
+	historyPath := filepath.Join(dir, "history")
+	if err := os.WriteFile(historyPath, []byte("/help\nhello\n"), 0o600); err != nil {
+		t.Fatalf("write history: %v", err)
+	}
+
+	gr, err := NewGoPromptReader(historyPath)
+	if err != nil {
+		t.Fatalf("NewGoPromptReader() error = %v", err)
+	}
+	if len(gr.historyEntries) != 2 {
+		t.Fatalf("historyEntries len = %d, want 2", len(gr.historyEntries))
+	}
+	if gr.lastPersisted != "hello" {
+		t.Fatalf("lastPersisted = %q, want %q", gr.lastPersisted, "hello")
+	}
+}
+
+func TestLoadHistoryEntries_ErrorOnDirectory(t *testing.T) {
+	dir := t.TempDir()
+	_, err := loadHistoryEntries(dir)
+	if err == nil {
+		t.Fatal("expected error when loading history from directory")
+	}
+	if !strings.Contains(err.Error(), "is a directory") {
+		t.Fatalf("expected directory-related error, got: %v", err)
 	}
 }

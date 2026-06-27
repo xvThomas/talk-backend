@@ -131,6 +131,20 @@ func TestGetRequiredKeyValue(t *testing.T) {
 	}
 }
 
+func TestGetKeyValue(t *testing.T) {
+	const key = "TEST_OPTIONAL_ENV"
+	t.Setenv(key, "present")
+
+	if got := GetKeyValue(key); got != "present" {
+		t.Fatalf("GetKeyValue(%q) = %q, want %q", key, got, "present")
+	}
+
+	const missingKey = "TEST_OPTIONAL_ENV_MISSING"
+	if got := GetKeyValue(missingKey); got != "" {
+		t.Fatalf("GetKeyValue(%q) = %q, want empty", missingKey, got)
+	}
+}
+
 func TestLoadReadsAndParsesEnvironment(t *testing.T) {
 	t.Setenv("OPENWEATHERMAP_API_KEY", "owm-value")
 	t.Setenv("TOOLS_MAX_CONCURRENT", "7")

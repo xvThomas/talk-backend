@@ -31,12 +31,12 @@ func NewAGUIEmitter(sse *SSEWriter, log *slog.Logger) *AGUIEmitter {
 // then TEXT_MESSAGE_START → TEXT_MESSAGE_CONTENT → TEXT_MESSAGE_END for final assistant messages
 // (no tool calls, non-empty content).
 func (e *AGUIEmitter) HandleMessageEvent(ctx context.Context, event domain.MessageEvent) error {
-	if event.Message.Role != domain.RoleAssistant {
+	if event.Role != domain.RoleAssistant {
 		return nil
 	}
 
 	// Emit reasoning events if thinking content is present (independent of tool calls).
-	if event.Message.Thinking != "" {
+	if event.Thinking != "" {
 		reasoningID := uuid.New().String()
 		if err := e.writeEvent(ctx, events.NewReasoningStartEvent(reasoningID)); err != nil {
 			return nil
@@ -44,7 +44,7 @@ func (e *AGUIEmitter) HandleMessageEvent(ctx context.Context, event domain.Messa
 		if err := e.writeEvent(ctx, events.NewReasoningMessageStartEvent(reasoningID, "reasoning")); err != nil {
 			return nil
 		}
-		if err := e.writeEvent(ctx, events.NewReasoningMessageContentEvent(reasoningID, event.Message.Thinking)); err != nil {
+		if err := e.writeEvent(ctx, events.NewReasoningMessageContentEvent(reasoningID, event.Thinking)); err != nil {
 			return nil
 		}
 		if err := e.writeEvent(ctx, events.NewReasoningMessageEndEvent(reasoningID)); err != nil {
@@ -56,10 +56,10 @@ func (e *AGUIEmitter) HandleMessageEvent(ctx context.Context, event domain.Messa
 	}
 
 	// Emit text message events only for final messages (no tool calls, non-empty content).
-	if len(event.Message.ToolCalls) > 0 {
+	if len(event.ToolCalls) > 0 {
 		return nil
 	}
-	if event.Message.Content == "" {
+	if event.Content == "" {
 		return nil
 	}
 
@@ -68,7 +68,7 @@ func (e *AGUIEmitter) HandleMessageEvent(ctx context.Context, event domain.Messa
 	if err := e.writeEvent(ctx, events.NewTextMessageStartEvent(messageID, events.WithRole("assistant"))); err != nil {
 		return nil
 	}
-	if err := e.writeEvent(ctx, events.NewTextMessageContentEvent(messageID, event.Message.Content)); err != nil {
+	if err := e.writeEvent(ctx, events.NewTextMessageContentEvent(messageID, event.Content)); err != nil {
 		return nil
 	}
 	if err := e.writeEvent(ctx, events.NewTextMessageEndEvent(messageID)); err != nil {

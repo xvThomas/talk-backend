@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -36,5 +37,15 @@ func TestBuildPromptProvider(t *testing.T) {
 	pp := buildPromptProvider("test_file.md")
 	if pp == nil {
 		t.Fatal("expected non-nil PromptProvider")
+	}
+}
+
+func TestRun_ErrorsWhenEnvMissing(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+
+	err := run(context.Background(), "sonnet-4.6", "system_prompt.md", false)
+	if err == nil {
+		t.Fatal("expected error when required API key env vars are missing")
 	}
 }
