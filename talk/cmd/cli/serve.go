@@ -236,7 +236,7 @@ func userFacingError(err error) error {
 	case errors.Is(err, domain.ErrSystemPrompt):
 		return fmt.Errorf("system prompt error, please contact the administrator")
 	case errors.Is(err, domain.ErrMaxToolIterations):
-		return fmt.Errorf("i reached the tool call limit without being able to finalize. try rephrasing your question more specifically")
+		return fmt.Errorf("the tool call limit was reached before finalizing. try rephrasing your question more specifically")
 	case errors.As(err, new(*sqlitestore.ErrStore)):
 		return fmt.Errorf("service temporarily unavailable, please try again")
 	default:

@@ -215,12 +215,12 @@ func TestUserFacingError(t *testing.T) {
 		{
 			name: "missing env var",
 			err:  fmt.Errorf("%w %q", config.ErrMissingEnvVar, "ANTHROPIC_API_KEY"),
-			want: "Missing environment variable, please contact the administrator",
+			want: "missing environment variable, please contact the administrator",
 		},
 		{
 			name: "system prompt error",
 			err:  fmt.Errorf("%w: file not found", domain.ErrSystemPrompt),
-			want: "System prompt error, please contact the administrator",
+			want: "system prompt error, please contact the administrator",
 		},
 		{
 			name: "store error",
@@ -230,12 +230,12 @@ func TestUserFacingError(t *testing.T) {
 		{
 			name: "max tool iterations",
 			err:  domain.ErrMaxToolIterations,
-			want: "I reached the tool call limit without being able to finalize. Try rephrasing your question more specifically",
+			want: "the tool call limit was reached before finalizing. try rephrasing your question more specifically",
 		},
 		{
 			name: "wrapped max tool iterations",
 			err:  fmt.Errorf("chat failed: %w", domain.ErrMaxToolIterations),
-			want: "I reached the tool call limit without being able to finalize. Try rephrasing your question more specifically",
+			want: "the tool call limit was reached before finalizing. try rephrasing your question more specifically",
 		},
 		{
 			name: "unknown error",
