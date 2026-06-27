@@ -96,6 +96,16 @@ func (r *MessageRepository) HandleTurnEvent(_ context.Context, event domain.Turn
 	return nil
 }
 
+// HandleToolCallStart is a no-op for the in-memory store.
+func (r *MessageRepository) HandleToolCallStart(_ context.Context, _ domain.ToolCallEvent) error {
+	return nil
+}
+
+// HandleToolCallEnd is a no-op for the in-memory store.
+func (r *MessageRepository) HandleToolCallEnd(_ context.Context, _ domain.ToolCallEndEvent) error {
+	return nil
+}
+
 // AllMessages returns a copy of all stored messages for the given session.
 func (r *MessageRepository) AllMessages(_ context.Context, sessionID string) ([]domain.Message, error) {
 	r.mu.Lock()

@@ -352,6 +352,14 @@ type recordingToolCallHandler struct {
 	endEvents []ToolCallEndEvent
 }
 
+func (h *recordingToolCallHandler) HandleMessageEvent(_ context.Context, _ MessageEvent) error {
+	return nil
+}
+
+func (h *recordingToolCallHandler) HandleTurnEvent(_ context.Context, _ TurnEvent) error {
+	return nil
+}
+
 func (h *recordingToolCallHandler) HandleToolCallStart(_ context.Context, event ToolCallEvent) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()

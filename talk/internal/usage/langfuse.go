@@ -106,6 +106,16 @@ func (l *LangfuseUsageReporter) HandleTurnEvent(_ context.Context, event domain.
 	return nil
 }
 
+// HandleToolCallStart is a no-op for the Langfuse reporter.
+func (l *LangfuseUsageReporter) HandleToolCallStart(_ context.Context, _ domain.ToolCallEvent) error {
+	return nil
+}
+
+// HandleToolCallEnd is a no-op for the Langfuse reporter.
+func (l *LangfuseUsageReporter) HandleToolCallEnd(_ context.Context, _ domain.ToolCallEndEvent) error {
+	return nil
+}
+
 // Close gracefully shuts down the reporter, flushing any pending events.
 func (l *LangfuseUsageReporter) Close() {
 	l.cancel()

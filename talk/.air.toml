@@ -4,7 +4,7 @@ tmp_dir = "tmp"
 [build]
   args_bin = ["serve"]
   bin = "./tmp/talk-cli.exe"
-  cmd = "go build -o ./tmp/talk-cli.exe ./cmd/cli"
+  cmd = "mkdir -p tmp && cp -f system_prompt.md tmp/system_prompt.md && go build -o ./tmp/talk-cli.exe ./cmd/cli"
   delay = 1000
   exclude_dir = ["tmp", "bin", "vendor"]
   exclude_regex = ["_test.go$"]

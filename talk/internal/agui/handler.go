@@ -11,7 +11,6 @@ import (
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/google/uuid"
-	"github.com/xvThomas/talk-backend/talk/internal/domain"
 )
 
 // Handler handles AG-UI protocol HTTP requests.
@@ -22,9 +21,14 @@ type Handler struct {
 }
 
 // ChatFunc is the function signature for processing a conversation turn.
-// It receives the thread ID, model alias, user messages, and an optional tool call event handler
-// for emitting tool call lifecycle events to the SSE stream.
-type ChatFunc func(ctx context.Context, threadID string, modelAlias string, messages []types.Message, toolHandler domain.ToolCallEventHandler) (string, error)
+// It receives the thread ID, model alias, user messages, and chat options
+// containing the SSE writer for event emission via the pipeline.
+type ChatFunc func(ctx context.Context, threadID string, modelAlias string, messages []types.Message, opts ChatOptions) error
+
+// ChatOptions carries per-request options for the chat function.
+type ChatOptions struct {
+	SSEWriter *SSEWriter
+}
 
 // NewHandler creates an AG-UI protocol handler.
 // supportedModels lists valid model aliases for error messages.
@@ -99,10 +103,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get response from chat function.
-	var response string
 	if h.chatFn != nil {
-		toolEmitter := NewToolCallEmitter(sse, h.log)
-		response, err = h.chatFn(ctx, threadID, modelAlias, input.Messages, toolEmitter)
+		err = h.chatFn(ctx, threadID, modelAlias, input.Messages, ChatOptions{SSEWriter: sse})
 		if ctx.Err() != nil {
 			h.log.Debug("client disconnected during chat", slog.String("thread_id", threadID))
 			return
@@ -111,31 +113,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_ = sse.WriteEvent(ctx, events.NewRunErrorEvent(err.Error()))
 			return
 		}
-	} else {
-		response = "Server is running but no chat function is configured."
-	}
-
-	messageID := uuid.New().String()
-
-	// TEXT_MESSAGE_START
-	if err := sse.WriteEvent(ctx, events.NewTextMessageStartEvent(messageID, events.WithRole(string(types.RoleAssistant)))); err != nil {
-		h.log.Error("writing TEXT_MESSAGE_START", slog.String("error", err.Error()))
-		return
-	}
-
-	// TEXT_MESSAGE_CONTENT
-	if err := sse.WriteEvent(ctx, events.NewTextMessageContentEvent(messageID, response)); err != nil {
-		h.log.Error("writing TEXT_MESSAGE_CONTENT", slog.String("error", err.Error()))
-		return
-	}
-
-	// TEXT_MESSAGE_END
-	if err := sse.WriteEvent(ctx, events.NewTextMessageEndEvent(messageID)); err != nil {
-		h.log.Error("writing TEXT_MESSAGE_END", slog.String("error", err.Error()))
-		return
 	}
 
 	// RUN_FINISHED
+	if ctx.Err() != nil {
+		h.log.Debug("client disconnected before RUN_FINISHED", slog.String("thread_id", threadID))
+		return
+	}
 	if err := sse.WriteEvent(ctx, events.NewRunFinishedEvent(threadID, runID)); err != nil {
 		h.log.Error("writing RUN_FINISHED", slog.String("error", err.Error()))
 		return

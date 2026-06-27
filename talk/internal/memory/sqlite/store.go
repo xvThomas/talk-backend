@@ -217,6 +217,16 @@ func (r *MessageRepository) HandleTurnEvent(ctx context.Context, event domain.Tu
 	return nil
 }
 
+// HandleToolCallStart is a no-op for the SQLite store.
+func (r *MessageRepository) HandleToolCallStart(_ context.Context, _ domain.ToolCallEvent) error {
+	return nil
+}
+
+// HandleToolCallEnd is a no-op for the SQLite store.
+func (r *MessageRepository) HandleToolCallEnd(_ context.Context, _ domain.ToolCallEndEvent) error {
+	return nil
+}
+
 func (r *MessageRepository) isSessionMaterialized(ctx context.Context, sessionID string) (bool, error) {
 	var count int
 	if err := r.conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE id = ?", sessionID).Scan(&count); err != nil {

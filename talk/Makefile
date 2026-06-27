@@ -37,6 +37,7 @@ serve: build ## Start the AG-UI server (MODEL=haiku-4.5, PORT=8090)
 
 serve-dev: ## Start the AG-UI server with hot reload (MODEL=haiku-4.5, requires air)
 	cp -f system_prompt.md bin/system_prompt.md
+	@mkdir -p tmp && cp -f system_prompt.md tmp/system_prompt.md
 	air
 
 test: ## Run tests

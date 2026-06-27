@@ -125,17 +125,13 @@ type ToolCallEndEvent struct {
 	EndedAt   time.Time
 }
 
-// ToolCallEventHandler receives tool call lifecycle events.
-// This interface is optional: only interested handlers need to implement it.
-type ToolCallEventHandler interface {
-	HandleToolCallStart(ctx context.Context, event ToolCallEvent) error
-	HandleToolCallEnd(ctx context.Context, event ToolCallEndEvent) error
-}
-
-// MessageEventHandler receives message and turn events.
+// MessageEventHandler receives all conversation lifecycle events:
+// messages, turns, and tool calls.
 type MessageEventHandler interface {
 	HandleMessageEvent(ctx context.Context, event MessageEvent) error
 	HandleTurnEvent(ctx context.Context, event TurnEvent) error
+	HandleToolCallStart(ctx context.Context, event ToolCallEvent) error
+	HandleToolCallEnd(ctx context.Context, event ToolCallEndEvent) error
 }
 
 // MessageEventHandlers executes handlers by sequential phases, with parallel
@@ -164,26 +160,16 @@ func (h *MessageEventHandlers) HandleTurnEvent(ctx context.Context, event TurnEv
 }
 
 // HandleToolCallStart dispatches one tool call start event through all phases.
-// Only handlers implementing ToolCallEventHandler are called.
 func (h *MessageEventHandlers) HandleToolCallStart(ctx context.Context, event ToolCallEvent) error {
 	return h.runPhases(func(handler MessageEventHandler) error {
-		toolHandler, ok := handler.(ToolCallEventHandler)
-		if !ok {
-			return nil
-		}
-		return toolHandler.HandleToolCallStart(ctx, event)
+		return handler.HandleToolCallStart(ctx, event)
 	})
 }
 
 // HandleToolCallEnd dispatches one tool call end event through all phases.
-// Only handlers implementing ToolCallEventHandler are called.
 func (h *MessageEventHandlers) HandleToolCallEnd(ctx context.Context, event ToolCallEndEvent) error {
 	return h.runPhases(func(handler MessageEventHandler) error {
-		toolHandler, ok := handler.(ToolCallEventHandler)
-		if !ok {
-			return nil
-		}
-		return toolHandler.HandleToolCallEnd(ctx, event)
+		return handler.HandleToolCallEnd(ctx, event)
 	})
 }
 
@@ -234,5 +220,9 @@ func (h *MessageEventHandlers) runPhases(call func(handler MessageEventHandler) 
 // NoOpMessageEventHandler silently discards all events.
 type NoOpMessageEventHandler struct{}
 
-func (NoOpMessageEventHandler) HandleMessageEvent(context.Context, MessageEvent) error { return nil }
-func (NoOpMessageEventHandler) HandleTurnEvent(context.Context, TurnEvent) error       { return nil }
+func (NoOpMessageEventHandler) HandleMessageEvent(context.Context, MessageEvent) error   { return nil }
+func (NoOpMessageEventHandler) HandleTurnEvent(context.Context, TurnEvent) error         { return nil }
+func (NoOpMessageEventHandler) HandleToolCallStart(context.Context, ToolCallEvent) error { return nil }
+func (NoOpMessageEventHandler) HandleToolCallEnd(context.Context, ToolCallEndEvent) error {
+	return nil
+}

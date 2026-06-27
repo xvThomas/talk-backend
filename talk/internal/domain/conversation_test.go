@@ -48,6 +48,14 @@ func (r *stubUsageReporter) HandleTurnEvent(_ context.Context, e TurnEvent) erro
 	return nil
 }
 
+func (r *stubUsageReporter) HandleToolCallStart(_ context.Context, _ ToolCallEvent) error {
+	return nil
+}
+
+func (r *stubUsageReporter) HandleToolCallEnd(_ context.Context, _ ToolCallEndEvent) error {
+	return nil
+}
+
 // stubStore is a simple in-memory MessageStore for tests.
 type stubStore struct {
 	messages map[string][]Message
@@ -62,6 +70,14 @@ func (s *stubStore) HandleMessageEvent(_ context.Context, event MessageEvent) er
 		s.messages = make(map[string][]Message)
 	}
 	s.messages[scope.SessionID()] = append(s.messages[scope.SessionID()], msg)
+	return nil
+}
+
+func (s *stubStore) HandleToolCallStart(_ context.Context, _ ToolCallEvent) error {
+	return nil
+}
+
+func (s *stubStore) HandleToolCallEnd(_ context.Context, _ ToolCallEndEvent) error {
 	return nil
 }
 

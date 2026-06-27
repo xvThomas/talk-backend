@@ -15,7 +15,6 @@ import (
 type ConsoleUsageReporter struct{}
 
 var _ domain.MessageEventHandler = (*ConsoleUsageReporter)(nil) // compile-time interface check
-var _ domain.ToolCallEventHandler = (*ConsoleUsageReporter)(nil)
 
 // HandleMessageEvent is called for every message event and prints usage for assistant LLM calls
 // and tool invocation details for tool calls.

@@ -20,12 +20,12 @@ type ToolExecutionResult struct {
 type ToolExecutor struct {
 	toolsProvider func() []Tool
 	maxConcurrent int
-	toolHandler   ToolCallEventHandler
+	eventHandler  MessageEventHandler
 }
 
 // NewToolExecutor creates a new ToolExecutor with the given tools provider and concurrency limit.
-func NewToolExecutor(toolsProvider func() []Tool, maxConcurrent int, toolHandler ToolCallEventHandler) *ToolExecutor {
-	return &ToolExecutor{toolsProvider: toolsProvider, maxConcurrent: maxConcurrent, toolHandler: toolHandler}
+func NewToolExecutor(toolsProvider func() []Tool, maxConcurrent int, eventHandler MessageEventHandler) *ToolExecutor {
+	return &ToolExecutor{toolsProvider: toolsProvider, maxConcurrent: maxConcurrent, eventHandler: eventHandler}
 }
 
 // Execute runs the given tool calls and returns the resulting messages.
@@ -64,8 +64,8 @@ func (e *ToolExecutor) executeSequential(ctx context.Context, turnID string, cal
 	executions := make([]ToolExecutionResult, 0, len(calls))
 	for _, call := range calls {
 		startedAt := time.Now()
-		if e.toolHandler != nil {
-			if err := e.toolHandler.HandleToolCallStart(ctx, ToolCallEvent{
+		if e.eventHandler != nil {
+			if err := e.eventHandler.HandleToolCallStart(ctx, ToolCallEvent{
 				TurnID:    turnID,
 				ToolCall:  call,
 				StartedAt: startedAt,
@@ -78,8 +78,8 @@ func (e *ToolExecutor) executeSequential(ctx context.Context, turnID string, cal
 		if execErr != nil {
 			result = ToolResult{ToolCallID: call.ID, Content: formatToolError(execErr)}
 		}
-		if e.toolHandler != nil {
-			if err := e.toolHandler.HandleToolCallEnd(ctx, ToolCallEndEvent{
+		if e.eventHandler != nil {
+			if err := e.eventHandler.HandleToolCallEnd(ctx, ToolCallEndEvent{
 				TurnID:    turnID,
 				ToolCall:  call,
 				Result:    result,
@@ -117,8 +117,8 @@ func (e *ToolExecutor) executeParallel(ctx context.Context, turnID string, calls
 			defer func() { <-sem }()
 
 			startedAt := time.Now()
-			if e.toolHandler != nil {
-				if err := e.toolHandler.HandleToolCallStart(ctx, ToolCallEvent{
+			if e.eventHandler != nil {
+				if err := e.eventHandler.HandleToolCallStart(ctx, ToolCallEvent{
 					TurnID:    turnID,
 					ToolCall:  toolCall,
 					StartedAt: startedAt,
@@ -132,8 +132,8 @@ func (e *ToolExecutor) executeParallel(ctx context.Context, turnID string, calls
 			if execErr != nil {
 				result = ToolResult{ToolCallID: toolCall.ID, Content: formatToolError(execErr)}
 			}
-			if e.toolHandler != nil {
-				if err := e.toolHandler.HandleToolCallEnd(ctx, ToolCallEndEvent{
+			if e.eventHandler != nil {
+				if err := e.eventHandler.HandleToolCallEnd(ctx, ToolCallEndEvent{
 					TurnID:    turnID,
 					ToolCall:  toolCall,
 					Result:    result,

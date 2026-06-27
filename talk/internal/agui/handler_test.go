@@ -37,29 +37,20 @@ func TestHandler_ValidRequest(t *testing.T) {
 
 	evts := parseSSEEvents(t, rec.Body.Bytes())
 
-	if len(evts) != 5 {
-		t.Fatalf("got %d events, want 5", len(evts))
+	// With nil chatFn: RUN_STARTED → RUN_FINISHED
+	if len(evts) != 2 {
+		for i, e := range evts {
+			t.Logf("event[%d]: %v", i, e["type"])
+		}
+		t.Fatalf("got %d events, want 2", len(evts))
 	}
 
 	assertEventType(t, evts[0], events.EventTypeRunStarted)
-	assertEventType(t, evts[1], events.EventTypeTextMessageStart)
-	assertEventType(t, evts[2], events.EventTypeTextMessageContent)
-	assertEventType(t, evts[3], events.EventTypeTextMessageEnd)
-	assertEventType(t, evts[4], events.EventTypeRunFinished)
+	assertEventType(t, evts[1], events.EventTypeRunFinished)
 
 	// RUN_STARTED must include a threadId.
 	if evts[0]["threadId"] == nil {
 		t.Error("RUN_STARTED missing threadId")
-	}
-
-	// TEXT_MESSAGE_CONTENT must have a delta.
-	if evts[2]["delta"] == nil || evts[2]["delta"] == "" {
-		t.Error("TEXT_MESSAGE_CONTENT missing delta")
-	}
-
-	// TEXT_MESSAGE_START must have role=assistant.
-	if role, _ := evts[1]["role"].(string); role != "assistant" {
-		t.Errorf("TEXT_MESSAGE_START role = %q, want %q", role, "assistant")
 	}
 }
 
@@ -106,9 +97,15 @@ func TestHandler_EmptyMessages(t *testing.T) {
 }
 
 func TestHandler_WithChatFunc(t *testing.T) {
-	chatFn := func(_ context.Context, _ string, modelAlias string, messages []types.Message, _ domain.ToolCallEventHandler) (string, error) {
+	chatFn := func(_ context.Context, _ string, modelAlias string, messages []types.Message, opts ChatOptions) error {
 		content := fmt.Sprintf("%v", messages[0].Content)
-		return "response to: " + content + " (model: " + modelAlias + ")", nil
+		emitter := NewAGUIEmitter(opts.SSEWriter, nil)
+		return emitter.HandleMessageEvent(context.Background(), domain.MessageEvent{
+			Message: domain.Message{
+				Role:    domain.RoleAssistant,
+				Content: "response to: " + content + " (model: " + modelAlias + ")",
+			},
+		})
 	}
 
 	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
@@ -120,14 +117,34 @@ func TestHandler_WithChatFunc(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	evts := parseSSEEvents(t, rec.Body.Bytes())
+
+	// RUN_STARTED, TEXT_MESSAGE_START, TEXT_MESSAGE_CONTENT, TEXT_MESSAGE_END, RUN_FINISHED
+	if len(evts) != 5 {
+		for i, e := range evts {
+			t.Logf("event[%d]: %v", i, e["type"])
+		}
+		t.Fatalf("got %d events, want 5", len(evts))
+	}
+
+	assertEventType(t, evts[0], events.EventTypeRunStarted)
+	assertEventType(t, evts[1], events.EventTypeTextMessageStart)
+	assertEventType(t, evts[2], events.EventTypeTextMessageContent)
+	assertEventType(t, evts[3], events.EventTypeTextMessageEnd)
+	assertEventType(t, evts[4], events.EventTypeRunFinished)
+
 	if delta, _ := evts[2]["delta"].(string); delta != "response to: ping (model: sonnet-4.6)" {
 		t.Errorf("delta = %q, want %q", delta, "response to: ping (model: sonnet-4.6)")
+	}
+
+	// TEXT_MESSAGE_START must have role=assistant.
+	if role, _ := evts[1]["role"].(string); role != "assistant" {
+		t.Errorf("TEXT_MESSAGE_START role = %q, want %q", role, "assistant")
 	}
 }
 
 func TestHandler_ChatFuncError(t *testing.T) {
-	chatFn := func(_ context.Context, _ string, _ string, _ []types.Message, _ domain.ToolCallEventHandler) (string, error) {
-		return "", context.DeadlineExceeded
+	chatFn := func(_ context.Context, _ string, _ string, _ []types.Message, _ ChatOptions) error {
+		return context.DeadlineExceeded
 	}
 
 	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
@@ -273,9 +290,9 @@ func TestHandler_ForwardedPropsNotAMap(t *testing.T) {
 
 func TestHandler_ModelPassedToChatFunc(t *testing.T) {
 	var receivedModel string
-	chatFn := func(_ context.Context, _ string, modelAlias string, _ []types.Message, _ domain.ToolCallEventHandler) (string, error) {
+	chatFn := func(_ context.Context, _ string, modelAlias string, _ []types.Message, _ ChatOptions) error {
 		receivedModel = modelAlias
-		return "ok", nil
+		return nil
 	}
 
 	handler := NewHandler(nil, chatFn, []string{"haiku-4.5", "sonnet-4.6"})
@@ -292,9 +309,9 @@ func TestHandler_ModelPassedToChatFunc(t *testing.T) {
 }
 
 func TestHandler_ClientDisconnectDuringChat(t *testing.T) {
-	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, _ domain.ToolCallEventHandler) (string, error) {
+	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, _ ChatOptions) error {
 		// Simulate client disconnect: context is already cancelled when chatFn runs.
-		return "", ctx.Err()
+		return ctx.Err()
 	}
 
 	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
@@ -324,8 +341,8 @@ func TestHandler_ClientDisconnectDuringChat(t *testing.T) {
 }
 
 func TestHandler_NoGoroutineLeak(t *testing.T) {
-	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, _ domain.ToolCallEventHandler) (string, error) {
-		return "", ctx.Err()
+	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, _ ChatOptions) error {
+		return ctx.Err()
 	}
 
 	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
@@ -355,20 +372,26 @@ func TestHandler_NoGoroutineLeak(t *testing.T) {
 }
 
 func TestHandler_ToolCallEventsInSSEStream(t *testing.T) {
-	// A chatFn that uses the toolHandler to emit tool call events.
-	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, toolHandler domain.ToolCallEventHandler) (string, error) {
+	// chatFn uses AGUIEmitter to emit tool call events via the SSEWriter in ChatOptions.
+	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, opts ChatOptions) error {
+		emitter := NewAGUIEmitter(opts.SSEWriter, nil)
 		tc := domain.ToolCall{ID: "call-abc", Name: "get_weather", Input: map[string]any{"city": "Paris"}}
 
-		_ = toolHandler.HandleToolCallStart(ctx, domain.ToolCallEvent{
+		_ = emitter.HandleToolCallStart(ctx, domain.ToolCallEvent{
 			TurnID:   "turn-1",
 			ToolCall: tc,
 		})
-		_ = toolHandler.HandleToolCallEnd(ctx, domain.ToolCallEndEvent{
+		_ = emitter.HandleToolCallEnd(ctx, domain.ToolCallEndEvent{
 			TurnID:   "turn-1",
 			ToolCall: tc,
 			Result:   domain.ToolResult{ToolCallID: "call-abc", Content: "sunny"},
 		})
-		return "The weather is sunny", nil
+		return emitter.HandleMessageEvent(ctx, domain.MessageEvent{
+			Message: domain.Message{
+				Role:    domain.RoleAssistant,
+				Content: "The weather is sunny",
+			},
+		})
 	}
 
 	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
@@ -410,17 +433,19 @@ func TestHandler_ToolCallEventsInSSEStream(t *testing.T) {
 }
 
 func TestHandler_MultipleToolCallsInOneIteration(t *testing.T) {
-	// chatFn simulates two tool calls in one iteration.
-	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, toolHandler domain.ToolCallEventHandler) (string, error) {
+	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, opts ChatOptions) error {
+		emitter := NewAGUIEmitter(opts.SSEWriter, nil)
 		tools := []domain.ToolCall{
 			{ID: "call-1", Name: "get_weather", Input: map[string]any{"city": "Paris"}},
 			{ID: "call-2", Name: "get_time", Input: map[string]any{"tz": "CET"}},
 		}
 		for _, tc := range tools {
-			_ = toolHandler.HandleToolCallStart(ctx, domain.ToolCallEvent{TurnID: "turn-1", ToolCall: tc})
-			_ = toolHandler.HandleToolCallEnd(ctx, domain.ToolCallEndEvent{TurnID: "turn-1", ToolCall: tc, Result: domain.ToolResult{ToolCallID: tc.ID, Content: "ok"}})
+			_ = emitter.HandleToolCallStart(ctx, domain.ToolCallEvent{TurnID: "turn-1", ToolCall: tc})
+			_ = emitter.HandleToolCallEnd(ctx, domain.ToolCallEndEvent{TurnID: "turn-1", ToolCall: tc, Result: domain.ToolResult{ToolCallID: tc.ID, Content: "ok"}})
 		}
-		return "done", nil
+		return emitter.HandleMessageEvent(ctx, domain.MessageEvent{
+			Message: domain.Message{Role: domain.RoleAssistant, Content: "done"},
+		})
 	}
 
 	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
@@ -459,21 +484,22 @@ func TestHandler_MultipleToolCallsInOneIteration(t *testing.T) {
 }
 
 func TestHandler_MultiIterationToolLoop(t *testing.T) {
-	// chatFn simulates two iterations: first iteration calls a tool, second iteration calls another.
-	callCount := 0
-	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, toolHandler domain.ToolCallEventHandler) (string, error) {
-		callCount++
+	chatFn := func(ctx context.Context, _ string, _ string, _ []types.Message, opts ChatOptions) error {
+		emitter := NewAGUIEmitter(opts.SSEWriter, nil)
+
 		// Simulate iteration 1: tool call.
 		tc1 := domain.ToolCall{ID: "call-iter1", Name: "search", Input: map[string]any{"q": "hello"}}
-		_ = toolHandler.HandleToolCallStart(ctx, domain.ToolCallEvent{TurnID: "turn-1", ToolCall: tc1})
-		_ = toolHandler.HandleToolCallEnd(ctx, domain.ToolCallEndEvent{TurnID: "turn-1", ToolCall: tc1, Result: domain.ToolResult{ToolCallID: tc1.ID, Content: "found"}})
+		_ = emitter.HandleToolCallStart(ctx, domain.ToolCallEvent{TurnID: "turn-1", ToolCall: tc1})
+		_ = emitter.HandleToolCallEnd(ctx, domain.ToolCallEndEvent{TurnID: "turn-1", ToolCall: tc1, Result: domain.ToolResult{ToolCallID: tc1.ID, Content: "found"}})
 
 		// Simulate iteration 2: another tool call.
 		tc2 := domain.ToolCall{ID: "call-iter2", Name: "fetch", Input: map[string]any{"url": "http://x"}}
-		_ = toolHandler.HandleToolCallStart(ctx, domain.ToolCallEvent{TurnID: "turn-1", ToolCall: tc2})
-		_ = toolHandler.HandleToolCallEnd(ctx, domain.ToolCallEndEvent{TurnID: "turn-1", ToolCall: tc2, Result: domain.ToolResult{ToolCallID: tc2.ID, Content: "data"}})
+		_ = emitter.HandleToolCallStart(ctx, domain.ToolCallEvent{TurnID: "turn-1", ToolCall: tc2})
+		_ = emitter.HandleToolCallEnd(ctx, domain.ToolCallEndEvent{TurnID: "turn-1", ToolCall: tc2, Result: domain.ToolResult{ToolCallID: tc2.ID, Content: "data"}})
 
-		return "final answer", nil
+		return emitter.HandleMessageEvent(ctx, domain.MessageEvent{
+			Message: domain.Message{Role: domain.RoleAssistant, Content: "final answer"},
+		})
 	}
 
 	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})

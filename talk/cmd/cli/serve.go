@@ -86,18 +86,24 @@ func runServe(ctx context.Context, port string) error {
 	defer mcpManager.Close()
 
 	// ChatFunc resolves model per request from the alias passed by the handler.
-	chatFn := func(reqCtx context.Context, threadID string, modelAlias string, aguiMessages []types.Message, toolHandler domain.ToolCallEventHandler) (string, error) {
+	chatFn := func(reqCtx context.Context, threadID string, modelAlias string, aguiMessages []types.Message, opts agui.ChatOptions) error {
 		client, err := llmRouter.Get(modelAlias)
 		if err != nil {
 			log.Error("resolving model", slog.String("model", modelAlias), slog.String("error", err.Error()))
-			return "", userFacingError(err)
+			return userFacingError(err)
 		}
 
 		modelDescriptor, err := domain.Lookup(modelAlias)
 		if err != nil {
 			log.Error("looking up model", slog.String("model", modelAlias), slog.String("error", err.Error()))
-			return "", userFacingError(err)
+			return userFacingError(err)
 		}
+
+		aguiEmitter := agui.NewAGUIEmitter(opts.SSEWriter, log)
+
+		handlers := domain.NewMessageEventHandlers([][]domain.MessageEventHandler{
+			{aguiEmitter, messages},
+		})
 
 		scope := domain.NewSessionScope(threadID, "anonymous")
 		manager := domain.NewConversationManager(domain.ConversationManagerConfig{
@@ -109,27 +115,26 @@ func runServe(ctx context.Context, port string) error {
 			SessionBrowser:     browser,
 			PromptProvider:     pp,
 			Tools:              mcpManager.Tools,
-			EventHandlers:      messages,
-			ToolCallHandler:    toolHandler,
+			EventHandlers:      handlers,
 			MaxConcurrentTools: cfg.ToolsMaxConcurrent,
 			ContextFullTurns:   cfg.ContextFullTurns,
 		})
 
 		userInput := extractUserInput(aguiMessages)
 		if userInput == "" {
-			return "", fmt.Errorf("no user message found in request")
+			return fmt.Errorf("no user message found in request")
 		}
 
-		response, chatErr := manager.Chat(reqCtx, userInput)
+		_, chatErr := manager.Chat(reqCtx, userInput)
 		if chatErr != nil {
 			log.Error("chat error",
 				slog.String("threadId", threadID),
 				slog.String("model", modelAlias),
 				slog.String("error", chatErr.Error()),
 			)
-			return "", userFacingError(chatErr)
+			return userFacingError(chatErr)
 		}
-		return response, nil
+		return nil
 	}
 
 	mux := http.NewServeMux()

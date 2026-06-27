@@ -8,19 +8,18 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/xvThomas/talk-backend/talk/internal/domain"
 )
 
-func TestToolCallEmitter_HandleToolCallStart(t *testing.T) {
+func TestAGUIEmitter_HandleToolCallStart(t *testing.T) {
 	rec := httptest.NewRecorder()
 	sse, err := NewSSEWriter(rec, nil)
 	if err != nil {
 		t.Fatalf("creating SSEWriter: %v", err)
 	}
 
-	emitter := NewToolCallEmitter(sse, nil)
+	emitter := NewAGUIEmitter(sse, nil)
 
 	event := domain.ToolCallEvent{
 		TurnID: "turn-1",
@@ -29,7 +28,6 @@ func TestToolCallEmitter_HandleToolCallStart(t *testing.T) {
 			Name:  "get_weather",
 			Input: map[string]any{"city": "Paris"},
 		},
-		StartedAt: time.Now(),
 	}
 
 	if err := emitter.HandleToolCallStart(context.Background(), event); err != nil {
@@ -72,14 +70,14 @@ func TestToolCallEmitter_HandleToolCallStart(t *testing.T) {
 	}
 }
 
-func TestToolCallEmitter_HandleToolCallEnd(t *testing.T) {
+func TestAGUIEmitter_HandleToolCallEnd(t *testing.T) {
 	rec := httptest.NewRecorder()
 	sse, err := NewSSEWriter(rec, nil)
 	if err != nil {
 		t.Fatalf("creating SSEWriter: %v", err)
 	}
 
-	emitter := NewToolCallEmitter(sse, nil)
+	emitter := NewAGUIEmitter(sse, nil)
 
 	event := domain.ToolCallEndEvent{
 		TurnID: "turn-1",
@@ -87,9 +85,7 @@ func TestToolCallEmitter_HandleToolCallEnd(t *testing.T) {
 			ID:   "call-456",
 			Name: "get_weather",
 		},
-		Result:    domain.ToolResult{ToolCallID: "call-456", Content: "sunny"},
-		StartedAt: time.Now().Add(-time.Second),
-		EndedAt:   time.Now(),
+		Result: domain.ToolResult{ToolCallID: "call-456", Content: "sunny"},
 	}
 
 	if err := emitter.HandleToolCallEnd(context.Background(), event); err != nil {
@@ -110,14 +106,111 @@ func TestToolCallEmitter_HandleToolCallEnd(t *testing.T) {
 	}
 }
 
-func TestToolCallEmitter_CancelledContext(t *testing.T) {
+func TestAGUIEmitter_HandleMessageEvent(t *testing.T) {
 	rec := httptest.NewRecorder()
 	sse, err := NewSSEWriter(rec, nil)
 	if err != nil {
 		t.Fatalf("creating SSEWriter: %v", err)
 	}
 
-	emitter := NewToolCallEmitter(sse, nil)
+	emitter := NewAGUIEmitter(sse, nil)
+
+	event := domain.MessageEvent{
+		Message: domain.Message{
+			Role:    domain.RoleAssistant,
+			Content: "Hello!",
+		},
+	}
+
+	if err := emitter.HandleMessageEvent(context.Background(), event); err != nil {
+		t.Fatalf("HandleMessageEvent error: %v", err)
+	}
+
+	evts := parseSSEData(t, rec.Body.Bytes())
+
+	if len(evts) != 3 {
+		t.Fatalf("got %d events, want 3 (START, CONTENT, END)", len(evts))
+	}
+
+	if got := evts[0]["type"]; got != "TEXT_MESSAGE_START" {
+		t.Errorf("event[0] type = %q, want %q", got, "TEXT_MESSAGE_START")
+	}
+	if got := evts[0]["role"]; got != "assistant" {
+		t.Errorf("event[0] role = %q, want %q", got, "assistant")
+	}
+	if got := evts[1]["type"]; got != "TEXT_MESSAGE_CONTENT" {
+		t.Errorf("event[1] type = %q, want %q", got, "TEXT_MESSAGE_CONTENT")
+	}
+	if got := evts[1]["delta"]; got != "Hello!" {
+		t.Errorf("event[1] delta = %q, want %q", got, "Hello!")
+	}
+	if got := evts[2]["type"]; got != "TEXT_MESSAGE_END" {
+		t.Errorf("event[2] type = %q, want %q", got, "TEXT_MESSAGE_END")
+	}
+}
+
+func TestAGUIEmitter_HandleMessageEvent_SkipsNonAssistant(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sse, err := NewSSEWriter(rec, nil)
+	if err != nil {
+		t.Fatalf("creating SSEWriter: %v", err)
+	}
+
+	emitter := NewAGUIEmitter(sse, nil)
+
+	// User messages should be skipped.
+	event := domain.MessageEvent{
+		Message: domain.Message{
+			Role:    domain.RoleUser,
+			Content: "hi",
+		},
+	}
+
+	if err := emitter.HandleMessageEvent(context.Background(), event); err != nil {
+		t.Fatalf("HandleMessageEvent error: %v", err)
+	}
+
+	evts := parseSSEData(t, rec.Body.Bytes())
+	if len(evts) != 0 {
+		t.Errorf("got %d events for user message, want 0", len(evts))
+	}
+}
+
+func TestAGUIEmitter_HandleMessageEvent_SkipsToolCallMessages(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sse, err := NewSSEWriter(rec, nil)
+	if err != nil {
+		t.Fatalf("creating SSEWriter: %v", err)
+	}
+
+	emitter := NewAGUIEmitter(sse, nil)
+
+	event := domain.MessageEvent{
+		Message: domain.Message{
+			Role:      domain.RoleAssistant,
+			Content:   "",
+			ToolCalls: []domain.ToolCall{{ID: "tc-1", Name: "tool"}},
+		},
+	}
+
+	if err := emitter.HandleMessageEvent(context.Background(), event); err != nil {
+		t.Fatalf("HandleMessageEvent error: %v", err)
+	}
+
+	evts := parseSSEData(t, rec.Body.Bytes())
+	if len(evts) != 0 {
+		t.Errorf("got %d events for tool-call message, want 0", len(evts))
+	}
+}
+
+func TestAGUIEmitter_CancelledContext(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sse, err := NewSSEWriter(rec, nil)
+	if err != nil {
+		t.Fatalf("creating SSEWriter: %v", err)
+	}
+
+	emitter := NewAGUIEmitter(sse, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
