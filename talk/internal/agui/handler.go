@@ -3,6 +3,7 @@ package agui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -50,9 +51,61 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(input.Messages) == 0 {
+	if len(input.Messages) == 0 && len(input.Resume) == 0 {
 		http.Error(w, `{"error":"messages field is required"}`, http.StatusBadRequest)
 		return
+	}
+
+	// Handle resume after interrupt: validate and route.
+	if len(input.Resume) > 0 {
+		// ThreadID is required for resume — cannot correlate without it.
+		if input.ThreadID == "" {
+			http.Error(w, `{"error":"threadId is required when resuming an interrupt"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Validate all resume entries have a known status and no conflicts.
+		hasResolved := false
+		hasCancelled := false
+		for _, entry := range input.Resume {
+			switch entry.Status {
+			case types.ResumeStatusResolved:
+				hasResolved = true
+			case types.ResumeStatusCancelled:
+				hasCancelled = true
+			default:
+				http.Error(w, `{"error":"unknown resume status, expected resolved or cancelled"}`, http.StatusBadRequest)
+				return
+			}
+		}
+		if hasResolved && hasCancelled {
+			http.Error(w, `{"error":"conflicting resume statuses: cannot mix resolved and cancelled"}`, http.StatusBadRequest)
+			return
+		}
+
+		if hasCancelled {
+			sse, sseErr := NewSSEWriter(w, h.log)
+			if sseErr != nil {
+				http.Error(w, `{"error":"streaming not supported"}`, http.StatusInternalServerError)
+				return
+			}
+			threadID := input.ThreadID
+			runID := input.RunID
+			if runID == "" {
+				runID = uuid.New().String()
+			}
+			_ = sse.WriteEvent(r.Context(), events.NewRunStartedEvent(threadID, runID))
+			_ = sse.WriteEvent(r.Context(), events.NewRunFinishedEvent(threadID, runID))
+			return
+		}
+
+		// Resolved: inject a continuation user message if messages are empty.
+		if len(input.Messages) == 0 {
+			input.Messages = []types.Message{{
+				Role:    "user",
+				Content: "Please continue where you left off.",
+			}}
+		}
 	}
 
 	// Extract model alias from forwardedProps.
@@ -116,6 +169,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
+			if errors.Is(err, domain.ErrMaxToolIterations) {
+				interruptID := uuid.New().String()
+				finishedEvent := events.NewRunFinishedEventWithOptions(threadID, runID,
+					events.WithOutcome(events.RunFinishedOutcome{
+						Type: events.RunFinishedOutcomeTypeInterrupt,
+						Interrupts: []types.Interrupt{{
+							ID:      interruptID,
+							Reason:  "talk:max_iterations",
+							Message: "I reached the tool call limit. Click Continue to let me keep working.",
+						}},
+					}),
+				)
+				_ = sse.WriteEvent(ctx, finishedEvent)
+				return
+			}
 			_ = sse.WriteEvent(ctx, events.NewRunErrorEvent(err.Error()))
 			return
 		}

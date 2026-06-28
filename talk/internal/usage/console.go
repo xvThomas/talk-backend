@@ -71,12 +71,16 @@ func (ConsoleUsageReporter) HandleTurnEvent(_ context.Context, e domain.TurnEven
 	if e.TotalUsage.ReasoningTokens > 0 {
 		reasoningInfo = fmt.Sprintf(" reasoning=%5d", e.TotalUsage.ReasoningTokens)
 	}
+	statusInfo := ""
+	if e.Status != "" && e.Status != domain.TurnStatusComplete {
+		statusInfo = fmt.Sprintf(" status=%s", e.Status)
+	}
 	fmt.Printf(
-		faint("  ↳ [turn]  model=%-14s calls=%d  total_in=%5d total_out=%5d cache_read=%5d cache_write=%5d%s\n"),
+		faint("  ↳ [turn]  model=%-14s calls=%d  total_in=%5d total_out=%5d cache_read=%5d cache_write=%5d%s%s\n"),
 		e.Model.Name, e.CallCount,
 		e.TotalUsage.InputTokens, e.TotalUsage.OutputTokens,
 		e.TotalUsage.CacheReadTokens, e.TotalUsage.CacheWriteTokens,
-		reasoningInfo,
+		reasoningInfo, statusInfo,
 	)
 
 	return nil

@@ -31,6 +31,14 @@ type HistoryTurn struct {
 	CallCount int
 	// Unique identifier for this turn, used to reconcile in-memory and remote sources.
 	TurnID string
+	// Status indicates whether this turn completed normally or was interrupted.
+	Status string
+	// InterruptID is the unique identifier of the emitted interrupt (empty if not interrupted).
+	InterruptID string
+	// InterruptReason identifies why the interrupt was emitted (e.g. "talk:max_iterations").
+	InterruptReason string
+	// InterruptState tracks lifecycle: "open", "resolved", or "cancelled".
+	InterruptState string
 }
 
 // SessionScope identifies the current conversation context.

@@ -48,12 +48,16 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE TABLE IF NOT EXISTS history_turns (
-	session_id  TEXT NOT NULL REFERENCES sessions(id),
-	turn_id     TEXT NOT NULL,
-	question    TEXT NOT NULL DEFAULT '',
-	answer      TEXT NOT NULL DEFAULT '',
-	question_at DATETIME,
-	answer_at   DATETIME,
+	session_id       TEXT NOT NULL REFERENCES sessions(id),
+	turn_id          TEXT NOT NULL,
+	question         TEXT NOT NULL DEFAULT '',
+	answer           TEXT NOT NULL DEFAULT '',
+	question_at      DATETIME,
+	answer_at        DATETIME,
+	status           TEXT NOT NULL DEFAULT 'complete',
+	interrupt_id     TEXT NOT NULL DEFAULT '',
+	interrupt_reason TEXT NOT NULL DEFAULT '',
+	interrupt_state  TEXT NOT NULL DEFAULT '',
 	PRIMARY KEY (session_id, turn_id)
 );
 
@@ -102,8 +106,58 @@ func New(dbPath string) (*MessageRepository, *Browser, error) {
 		return nil, nil, storeErr("creating schema", err)
 	}
 
+	// Run schema migrations for columns that may be missing in pre-existing databases.
+	if err := migrateHistoryTurns(conn); err != nil {
+		_ = conn.Close()
+		return nil, nil, storeErr("migrating history_turns", err)
+	}
+
 	d := &db{conn: conn}
 	return &MessageRepository{d}, &Browser{d}, nil
+}
+
+// migrateHistoryTurns adds columns that may be absent in legacy databases.
+// It uses PRAGMA table_info to detect missing columns and fails fast on unexpected errors.
+func migrateHistoryTurns(conn *sql.DB) error {
+	existing := make(map[string]struct{})
+	rows, err := conn.Query("PRAGMA table_info(history_turns)")
+	if err != nil {
+		return fmt.Errorf("reading table_info: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull int
+		var dfltValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			return fmt.Errorf("scanning table_info: %w", err)
+		}
+		existing[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating table_info: %w", err)
+	}
+
+	migrations := []struct {
+		column string
+		ddl    string
+	}{
+		{"status", "ALTER TABLE history_turns ADD COLUMN status TEXT NOT NULL DEFAULT 'complete'"},
+		{"interrupt_id", "ALTER TABLE history_turns ADD COLUMN interrupt_id TEXT NOT NULL DEFAULT ''"},
+		{"interrupt_reason", "ALTER TABLE history_turns ADD COLUMN interrupt_reason TEXT NOT NULL DEFAULT ''"},
+		{"interrupt_state", "ALTER TABLE history_turns ADD COLUMN interrupt_state TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, m := range migrations {
+		if _, ok := existing[m.column]; ok {
+			continue
+		}
+		if _, err := conn.Exec(m.ddl); err != nil {
+			return fmt.Errorf("adding column %s: %w", m.column, err)
+		}
+	}
+	return nil
 }
 
 // DB returns the underlying database connection for sharing with other components.
@@ -196,20 +250,33 @@ func (r *MessageRepository) HandleTurnEvent(ctx context.Context, event domain.Tu
 		answerAt = event.EndedAt.UTC().Format(timeFormat)
 	}
 
+	status := event.Status
+	if status == "" {
+		status = domain.TurnStatusComplete
+	}
+
 	if _, err := r.conn.ExecContext(ctx,
-		`INSERT INTO history_turns (session_id, turn_id, question, answer, question_at, answer_at)
-		 VALUES (?, ?, ?, ?, ?, ?)
+		`INSERT INTO history_turns (session_id, turn_id, question, answer, question_at, answer_at, status, interrupt_id, interrupt_reason, interrupt_state)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(session_id, turn_id) DO UPDATE SET
 		   question = CASE WHEN excluded.question <> '' THEN excluded.question ELSE history_turns.question END,
 		   answer = CASE WHEN excluded.answer <> '' THEN excluded.answer ELSE history_turns.answer END,
 		   question_at = COALESCE(excluded.question_at, history_turns.question_at),
-		   answer_at = COALESCE(excluded.answer_at, history_turns.answer_at)`,
+		   answer_at = COALESCE(excluded.answer_at, history_turns.answer_at),
+		   status = excluded.status,
+		   interrupt_id = CASE WHEN excluded.interrupt_id <> '' THEN excluded.interrupt_id ELSE history_turns.interrupt_id END,
+		   interrupt_reason = CASE WHEN excluded.interrupt_reason <> '' THEN excluded.interrupt_reason ELSE history_turns.interrupt_reason END,
+		   interrupt_state = CASE WHEN excluded.interrupt_state <> '' THEN excluded.interrupt_state ELSE history_turns.interrupt_state END`,
 		event.SessionScope.SessionID(),
 		event.TurnID,
 		event.Input,
 		event.Output,
 		questionAt,
 		answerAt,
+		status,
+		event.InterruptID,
+		event.InterruptReason,
+		event.InterruptState,
 	); err != nil {
 		return storeErr("upserting history turn", err)
 	}
@@ -353,7 +420,7 @@ func (b *Browser) LoadHistoryTurnsFromSession(ctx context.Context, sessionID str
 	defer b.mu.RUnlock()
 
 	rows, err := b.conn.QueryContext(ctx, `
-		SELECT turn_id, question, answer, question_at, answer_at
+		SELECT turn_id, question, answer, question_at, answer_at, status, interrupt_id, interrupt_reason, interrupt_state
 		FROM history_turns
 		WHERE session_id = ?
 		ORDER BY COALESCE(question_at, answer_at), turn_id
@@ -368,9 +435,11 @@ func (b *Browser) LoadHistoryTurnsFromSession(ctx context.Context, sessionID str
 		var turn domain.HistoryTurn
 		var questionAt sql.NullString
 		var answerAt sql.NullString
-		if err := rows.Scan(&turn.TurnID, &turn.Question, &turn.Answer, &questionAt, &answerAt); err != nil {
+		var status string
+		if err := rows.Scan(&turn.TurnID, &turn.Question, &turn.Answer, &questionAt, &answerAt, &status, &turn.InterruptID, &turn.InterruptReason, &turn.InterruptState); err != nil {
 			return nil, storeErr("scanning history turn", err)
 		}
+		turn.Status = status
 		if questionAt.Valid {
 			parsed, err := time.Parse(timeFormat, questionAt.String)
 			if err != nil {

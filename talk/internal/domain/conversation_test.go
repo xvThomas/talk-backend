@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -744,4 +745,112 @@ func TestConversation_ChatUsesExpectedContextSizesByMode(t *testing.T) {
 	assertThirdTurnInputLen(t, -1, 9)
 	assertThirdTurnInputLen(t, 1, 7)
 	assertThirdTurnInputLen(t, 0, 5)
+}
+
+func TestConversation_MaxIterations_PersistsIncompleteTurn(t *testing.T) {
+	tool := &stubTool{name: "loop_tool", result: map[string]any{"looping": true}}
+	responses := make([]*Message, maxToolCalls)
+	for i := range responses {
+		responses[i] = &Message{
+			Role:      RoleAssistant,
+			ToolCalls: []ToolCall{{ID: fmt.Sprintf("c%d", i), Name: "loop_tool", Input: map[string]any{}}},
+		}
+	}
+	client := &stubClient{responses: responses}
+	mgr, reporter := newManager(client, []Tool{tool})
+
+	_, err := mgr.Chat(context.Background(), "loop?")
+	if !errors.Is(err, ErrMaxToolIterations) {
+		t.Fatalf("expected ErrMaxToolIterations, got %v", err)
+	}
+
+	if len(reporter.turns) != 1 {
+		t.Fatalf("expected 1 turn event, got %d", len(reporter.turns))
+	}
+	turn := reporter.turns[0]
+	if turn.Status != TurnStatusIncomplete {
+		t.Errorf("turn status = %q, want %q", turn.Status, TurnStatusIncomplete)
+	}
+	if turn.Input != "loop?" {
+		t.Errorf("turn input = %q, want %q", turn.Input, "loop?")
+	}
+	if turn.Output != "" {
+		t.Errorf("turn output = %q, want empty", turn.Output)
+	}
+	if turn.CallCount != maxToolCalls {
+		t.Errorf("turn call count = %d, want %d", turn.CallCount, maxToolCalls)
+	}
+	if len(turn.ToolCalls) != maxToolCalls {
+		t.Errorf("turn tool calls = %d, want %d", len(turn.ToolCalls), maxToolCalls)
+	}
+}
+
+func TestBuildContextMessages_IncompleteTurnForceIncluded_LeanMode(t *testing.T) {
+	store := &stubStore{
+		messages: map[string][]Message{
+			"test-session": {
+				{Role: RoleUser, Content: "Q1 details", TurnID: "t1"},
+				{Role: RoleAssistant, Content: "Calling tools fetch.", TurnID: "t1"},
+				{Role: RoleTool, Content: "", TurnID: "t1"},
+				{Role: RoleUser, Content: "Q2 current", TurnID: "t2"},
+			},
+		},
+		history: map[string][]HistoryTurn{
+			"test-session": {
+				{TurnID: "t1", Question: "Q1", Answer: "", At: time.Now(), Status: TurnStatusIncomplete},
+			},
+		},
+	}
+
+	cb := NewContextBuilder(store, store, "test-session", 0)
+	got := cb.BuildContextMessages(context.Background(), "t2")
+
+	// Lean mode (contextFull=0): normally t1 would be summarized to Q/A.
+	// But since t1 is incomplete, it should be force-included in detail.
+	var t1Messages []Message
+	for _, msg := range got {
+		if msg.TurnID == "t1" {
+			t1Messages = append(t1Messages, msg)
+		}
+	}
+	if len(t1Messages) != 3 {
+		t.Fatalf("expected 3 detailed messages for incomplete turn t1, got %d", len(t1Messages))
+	}
+}
+
+func TestBuildContextMessages_CompleteTurnSummarized_LeanMode(t *testing.T) {
+	store := &stubStore{
+		messages: map[string][]Message{
+			"test-session": {
+				{Role: RoleUser, Content: "Q1 details", TurnID: "t1"},
+				{Role: RoleAssistant, Content: "A1 details", TurnID: "t1"},
+				{Role: RoleUser, Content: "Q2 current", TurnID: "t2"},
+			},
+		},
+		history: map[string][]HistoryTurn{
+			"test-session": {
+				{TurnID: "t1", Question: "Q1", Answer: "A1", At: time.Now(), Status: TurnStatusComplete},
+			},
+		},
+	}
+
+	cb := NewContextBuilder(store, store, "test-session", 0)
+	got := cb.BuildContextMessages(context.Background(), "t2")
+
+	// Lean mode: complete turn t1 should be summarized (only Q/A from history).
+	var t1Messages []Message
+	for _, msg := range got {
+		if msg.TurnID == "t1" {
+			t1Messages = append(t1Messages, msg)
+		}
+	}
+	if len(t1Messages) != 2 {
+		t.Fatalf("expected 2 summary messages (Q/A) for complete turn t1, got %d", len(t1Messages))
+	}
+	if t1Messages[0].Content != "Q1" {
+		t.Errorf("first summary message content = %q, want %q", t1Messages[0].Content, "Q1")
+	}
+	if t1Messages[1].Content != "A1" {
+		t.Errorf("second summary message content = %q, want %q", t1Messages[1].Content, "A1")
+	}
 }

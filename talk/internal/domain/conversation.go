@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 )
@@ -16,6 +17,19 @@ var ErrSystemPrompt = errors.New("loading system prompt")
 var ErrMaxToolIterations = errors.New("maximum tool call iterations exceeded")
 
 const maxToolCalls = 5
+
+// Turn status constants.
+const (
+	TurnStatusComplete   = "complete"
+	TurnStatusIncomplete = "incomplete"
+)
+
+// Interrupt state constants.
+const (
+	InterruptStateOpen      = "open"
+	InterruptStateResolved  = "resolved"
+	InterruptStateCancelled = "cancelled"
+)
 
 // ConversationManager orchestrates a multi-turn conversation with optional tool calls.
 type ConversationManager struct {
@@ -214,6 +228,24 @@ func (m *ConversationManager) Chat(ctx context.Context, userInput string) (strin
 				return "", fmt.Errorf("handling tool result event: %w", err)
 			}
 		}
+	}
+
+	// Persist the incomplete turn before returning the iteration limit error.
+	if err := m.messageHandler.HandleTurnEvent(ctx, TurnEvent{
+		TurnID:       turnID,
+		TurnSpanID:   turnSpanID,
+		StartedAt:    turnStartedAt,
+		EndedAt:      time.Now(),
+		SessionScope: m.sessionScope,
+		Model:        model,
+		TotalUsage:   totalUsage,
+		CallCount:    callCount,
+		Input:        userInput,
+		Output:       "",
+		ToolCalls:    allToolCalls,
+		Status:       TurnStatusIncomplete,
+	}); err != nil {
+		slog.Error("persisting incomplete turn on max iterations", slog.String("turn_id", turnID), slog.String("error", err.Error()))
 	}
 
 	return "", ErrMaxToolIterations

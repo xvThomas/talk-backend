@@ -201,6 +201,14 @@ func (l *LangfuseUsageReporter) conversationTurnToOTLP(turnEvent domain.TurnEven
 		{Key: "langfuse.observation.level", Value: stringValue("DEFAULT")},
 	}
 
+	// Add turn status if not the default "complete".
+	if turnEvent.Status != "" && turnEvent.Status != domain.TurnStatusComplete {
+		attributes = append(attributes, OTLPAttribute{
+			Key:   "langfuse.trace.metadata.status",
+			Value: stringValue(turnEvent.Status),
+		})
+	}
+
 	// Add tool call information if present
 	if len(turnEvent.ToolCalls) > 0 {
 		toolCallsJSON, _ := json.Marshal(turnEvent.ToolCalls)

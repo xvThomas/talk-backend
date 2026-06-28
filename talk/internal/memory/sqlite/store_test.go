@@ -738,3 +738,191 @@ func TestStore_TurnIDPersisted(t *testing.T) {
 		t.Errorf("expected TurnID %q, got %q", "turn-abc", msgs[0].TurnID)
 	}
 }
+
+func TestStore_HandleTurnEvent_StatusPersisted(t *testing.T) {
+	s, b, _ := newTestStore(t)
+
+	// Materialize session first.
+	if err := s.HandleMessageEvent(context.Background(), domain.MessageEvent{
+		Message:      domain.Message{Role: domain.RoleUser, Content: "hello", TurnID: "t1"},
+		SessionScope: scope,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Persist a complete turn.
+	if err := s.HandleTurnEvent(context.Background(), domain.TurnEvent{
+		TurnID:       "t1",
+		TurnSpanID:   "s1",
+		SessionScope: scope,
+		Model:        domain.Model{Name: "m"},
+		StartedAt:    time.Now(),
+		EndedAt:      time.Now(),
+		Input:        "hello",
+		Output:       "world",
+		Status:       domain.TurnStatusComplete,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Persist an incomplete turn.
+	if err := s.HandleMessageEvent(context.Background(), domain.MessageEvent{
+		Message:      domain.Message{Role: domain.RoleUser, Content: "loop", TurnID: "t2"},
+		SessionScope: scope,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.HandleTurnEvent(context.Background(), domain.TurnEvent{
+		TurnID:       "t2",
+		TurnSpanID:   "s2",
+		SessionScope: scope,
+		Model:        domain.Model{Name: "m"},
+		StartedAt:    time.Now(),
+		EndedAt:      time.Now(),
+		Input:        "loop",
+		Output:       "",
+		Status:       domain.TurnStatusIncomplete,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	turns, err := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 2 {
+		t.Fatalf("expected 2 turns, got %d", len(turns))
+	}
+
+	if turns[0].TurnID != "t1" || turns[0].Status != domain.TurnStatusComplete {
+		t.Errorf("turn 0: id=%q status=%q, want t1/complete", turns[0].TurnID, turns[0].Status)
+	}
+	if turns[1].TurnID != "t2" || turns[1].Status != domain.TurnStatusIncomplete {
+		t.Errorf("turn 1: id=%q status=%q, want t2/incomplete", turns[1].TurnID, turns[1].Status)
+	}
+}
+
+func TestStore_HandleTurnEvent_EmptyStatusDefaultsToComplete(t *testing.T) {
+	s, b, _ := newTestStore(t)
+
+	// Materialize session.
+	if err := s.HandleMessageEvent(context.Background(), domain.MessageEvent{
+		Message:      domain.Message{Role: domain.RoleUser, Content: "hi", TurnID: "t1"},
+		SessionScope: scope,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Persist turn with empty status — should default to "complete".
+	if err := s.HandleTurnEvent(context.Background(), domain.TurnEvent{
+		TurnID:       "t1",
+		TurnSpanID:   "s1",
+		SessionScope: scope,
+		Model:        domain.Model{Name: "m"},
+		StartedAt:    time.Now(),
+		EndedAt:      time.Now(),
+		Input:        "hi",
+		Output:       "hey",
+		Status:       "",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	turns, err := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 {
+		t.Fatalf("expected 1 turn, got %d", len(turns))
+	}
+	if turns[0].Status != domain.TurnStatusComplete {
+		t.Errorf("status = %q, want %q", turns[0].Status, domain.TurnStatusComplete)
+	}
+}
+
+func TestStore_HandleTurnEvent_InterruptFieldsPersisted(t *testing.T) {
+	s, b, _ := newTestStore(t)
+
+	// Materialize session.
+	if err := s.HandleMessageEvent(context.Background(), domain.MessageEvent{
+		Message:      domain.Message{Role: domain.RoleUser, Content: "hi", TurnID: "t1"},
+		SessionScope: scope,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Persist turn with interrupt fields.
+	if err := s.HandleTurnEvent(context.Background(), domain.TurnEvent{
+		TurnID:          "t1",
+		TurnSpanID:      "s1",
+		SessionScope:    scope,
+		Model:           domain.Model{Name: "m"},
+		StartedAt:       time.Now(),
+		EndedAt:         time.Now(),
+		Input:           "do stuff",
+		Output:          "",
+		Status:          domain.TurnStatusIncomplete,
+		InterruptID:     "int-abc",
+		InterruptReason: "talk:max_iterations",
+		InterruptState:  domain.InterruptStateOpen,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	turns, err := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 {
+		t.Fatalf("expected 1 turn, got %d", len(turns))
+	}
+	if turns[0].InterruptID != "int-abc" {
+		t.Errorf("interrupt_id = %q, want %q", turns[0].InterruptID, "int-abc")
+	}
+	if turns[0].InterruptReason != "talk:max_iterations" {
+		t.Errorf("interrupt_reason = %q, want %q", turns[0].InterruptReason, "talk:max_iterations")
+	}
+	if turns[0].InterruptState != domain.InterruptStateOpen {
+		t.Errorf("interrupt_state = %q, want %q", turns[0].InterruptState, domain.InterruptStateOpen)
+	}
+}
+
+func TestStore_Migration_ColumnsExistOnFreshDB(t *testing.T) {
+	s, b, _ := newTestStore(t)
+
+	// Materialize session and insert a turn — should work even on brand-new DB
+	// (all columns created via schema, migration is a no-op).
+	if err := s.HandleMessageEvent(context.Background(), domain.MessageEvent{
+		Message:      domain.Message{Role: domain.RoleUser, Content: "test", TurnID: "t1"},
+		SessionScope: scope,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.HandleTurnEvent(context.Background(), domain.TurnEvent{
+		TurnID:       "t1",
+		TurnSpanID:   "s1",
+		SessionScope: scope,
+		Model:        domain.Model{Name: "m"},
+		StartedAt:    time.Now(),
+		EndedAt:      time.Now(),
+		Input:        "test",
+		Output:       "reply",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	turns, err := b.LoadHistoryTurnsFromSession(context.Background(), scope.SessionID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 {
+		t.Fatalf("expected 1 turn, got %d", len(turns))
+	}
+	// Default values for new columns.
+	if turns[0].InterruptID != "" {
+		t.Errorf("interrupt_id = %q, want empty", turns[0].InterruptID)
+	}
+	if turns[0].InterruptState != "" {
+		t.Errorf("interrupt_state = %q, want empty", turns[0].InterruptState)
+	}
+}

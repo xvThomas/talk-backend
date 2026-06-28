@@ -136,6 +136,10 @@ func runServe(ctx context.Context, port string) error {
 				slog.String("model", modelAlias),
 				slog.String("error", chatErr.Error()),
 			)
+			// Let ErrMaxToolIterations pass through so the handler can emit an interrupt.
+			if errors.Is(chatErr, domain.ErrMaxToolIterations) {
+				return chatErr
+			}
 			return userFacingError(chatErr)
 		}
 		return nil

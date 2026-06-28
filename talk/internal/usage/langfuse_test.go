@@ -175,35 +175,61 @@ func TestLangfuseUsageReporter_OTLPConversions(t *testing.T) {
 	r := &LangfuseUsageReporter{}
 	now := time.Now()
 
-	msg := domain.MessageEvent{
-		Message: domain.Message{
-			Role:      domain.RoleAssistant,
-			TurnID:    domain.GenerateTraceID(),
-			ToolCalls: []domain.ToolCall{{ID: "tc-1", Name: "weather", Input: map[string]any{"city": "Paris"}}},
-		},
-		Model: domain.Model{OLTPProvider: domain.OLTPProviderAnthropic, APIModelID: "claude-sonnet-4-5"},
-		Kind:  domain.CallKindInitial,
-		APICall: domain.APICallEvent{
-			Input:  "hello",
-			Output: "world",
-		},
-		Usage:      domain.Usage{InputTokens: 10, OutputTokens: 20},
-		StartedAt:  now.Add(-2 * time.Second),
-		EndedAt:    now,
-		TurnSpanID: domain.GenerateSpanID(),
-	}
-	msgTrace, err := r.apiCallToOTLP(msg)
-	if err != nil {
-		t.Fatalf("apiCallToOTLP unexpected error: %v", err)
-	}
-	if msgTrace == nil || msgTrace.Span.TraceID == "" || msgTrace.Span.SpanID == "" {
-		t.Fatalf("apiCallToOTLP produced invalid trace/span IDs: %+v", msgTrace)
-	}
-	if msgTrace.Span.Name != "llm_initial" {
-		t.Fatalf("apiCallToOTLP span name = %q, want %q", msgTrace.Span.Name, "llm_initial")
-	}
+	// --- apiCallToOTLP ---
 
-	turn := domain.TurnEvent{
+	t.Run("apiCallToOTLP with tool calls", func(t *testing.T) {
+		msg := domain.MessageEvent{
+			Message: domain.Message{
+				Role:      domain.RoleAssistant,
+				TurnID:    domain.GenerateTraceID(),
+				ToolCalls: []domain.ToolCall{{ID: "tc-1", Name: "weather", Input: map[string]any{"city": "Paris"}}},
+			},
+			Model: domain.Model{OLTPProvider: domain.OLTPProviderAnthropic, APIModelID: "claude-sonnet-4-5"},
+			Kind:  domain.CallKindInitial,
+			APICall: domain.APICallEvent{
+				Input:  "hello",
+				Output: "world",
+			},
+			Usage:      domain.Usage{InputTokens: 10, OutputTokens: 20},
+			StartedAt:  now.Add(-2 * time.Second),
+			EndedAt:    now,
+			TurnSpanID: domain.GenerateSpanID(),
+		}
+		trace, err := r.apiCallToOTLP(msg)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if trace.Span.Name != "llm_initial" {
+			t.Fatalf("span name = %q, want %q", trace.Span.Name, "llm_initial")
+		}
+		assertHasAttr(t, trace.Span.Attributes, "langfuse.observation.metadata.tool_calls")
+		assertHasAttr(t, trace.Span.Attributes, "langfuse.observation.metadata.tool_names")
+	})
+
+	t.Run("apiCallToOTLP without tool calls", func(t *testing.T) {
+		msg := domain.MessageEvent{
+			Message: domain.Message{
+				Role:   domain.RoleAssistant,
+				TurnID: domain.GenerateTraceID(),
+			},
+			Model:      domain.Model{OLTPProvider: domain.OLTPProviderAnthropic, APIModelID: "claude-sonnet-4-5"},
+			Kind:       domain.CallKindInitial,
+			Usage:      domain.Usage{InputTokens: 10, OutputTokens: 20},
+			StartedAt:  now.Add(-2 * time.Second),
+			EndedAt:    now,
+			TurnSpanID: domain.GenerateSpanID(),
+		}
+		trace, err := r.apiCallToOTLP(msg)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		assertNoAttr(t, trace.Span.Attributes, "langfuse.observation.metadata.tool_calls")
+		assertNoAttr(t, trace.Span.Attributes, "langfuse.observation.metadata.tool_names")
+	})
+
+	// --- conversationTurnToOTLP ---
+
+	baseTurn := domain.TurnEvent{
 		TurnID:       domain.GenerateTraceID(),
 		TurnSpanID:   domain.GenerateSpanID(),
 		StartedAt:    now.Add(-4 * time.Second),
@@ -214,16 +240,105 @@ func TestLangfuseUsageReporter_OTLPConversions(t *testing.T) {
 		CallCount:    2,
 		Input:        "turn input",
 		Output:       "turn output",
-		ToolCalls:    []domain.ToolCall{{ID: "tc-2", Name: "search"}},
 	}
-	turnTrace, err := r.conversationTurnToOTLP(turn)
-	if err != nil {
-		t.Fatalf("conversationTurnToOTLP unexpected error: %v", err)
+
+	t.Run("conversationTurnToOTLP with tool calls", func(t *testing.T) {
+		turn := baseTurn
+		turn.ToolCalls = []domain.ToolCall{{ID: "tc-2", Name: "search"}, {ID: "tc-3", Name: "read"}}
+		trace, err := r.conversationTurnToOTLP(turn)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if trace.Span.Name != "conversation_turn" {
+			t.Fatalf("span name = %q, want %q", trace.Span.Name, "conversation_turn")
+		}
+		assertHasAttr(t, trace.Span.Attributes, "langfuse.observation.metadata.tool_calls")
+		assertHasAttr(t, trace.Span.Attributes, "langfuse.observation.metadata.tool_names")
+		assertIntAttr(t, trace.Span.Attributes, "langfuse.observation.metadata.tool_count", 2)
+	})
+
+	t.Run("conversationTurnToOTLP without tool calls", func(t *testing.T) {
+		trace, err := r.conversationTurnToOTLP(baseTurn)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		assertNoAttr(t, trace.Span.Attributes, "langfuse.observation.metadata.tool_calls")
+		assertNoAttr(t, trace.Span.Attributes, "langfuse.observation.metadata.tool_names")
+		assertNoAttr(t, trace.Span.Attributes, "langfuse.observation.metadata.tool_count")
+	})
+
+	t.Run("conversationTurnToOTLP status empty omitted", func(t *testing.T) {
+		trace, err := r.conversationTurnToOTLP(baseTurn)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		assertNoAttr(t, trace.Span.Attributes, "langfuse.trace.metadata.status")
+	})
+
+	t.Run("conversationTurnToOTLP status complete omitted", func(t *testing.T) {
+		turn := baseTurn
+		turn.Status = domain.TurnStatusComplete
+		trace, err := r.conversationTurnToOTLP(turn)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		assertNoAttr(t, trace.Span.Attributes, "langfuse.trace.metadata.status")
+	})
+
+	t.Run("conversationTurnToOTLP status incomplete included", func(t *testing.T) {
+		turn := baseTurn
+		turn.Status = domain.TurnStatusIncomplete
+		trace, err := r.conversationTurnToOTLP(turn)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		assertStringAttr(t, trace.Span.Attributes, "langfuse.trace.metadata.status", domain.TurnStatusIncomplete)
+	})
+}
+
+// --- test helpers ---
+
+func assertHasAttr(t *testing.T, attrs []OTLPAttribute, key string) {
+	t.Helper()
+	for _, a := range attrs {
+		if a.Key == key {
+			return
+		}
 	}
-	if turnTrace == nil || turnTrace.Span.TraceID == "" || turnTrace.Span.SpanID == "" {
-		t.Fatalf("conversationTurnToOTLP produced invalid trace/span IDs: %+v", turnTrace)
+	t.Fatalf("expected attribute %q not found", key)
+}
+
+func assertNoAttr(t *testing.T, attrs []OTLPAttribute, key string) {
+	t.Helper()
+	for _, a := range attrs {
+		if a.Key == key {
+			t.Fatalf("attribute %q should not be present", key)
+		}
 	}
-	if turnTrace.Span.Name != "conversation_turn" {
-		t.Fatalf("conversationTurnToOTLP span name = %q, want %q", turnTrace.Span.Name, "conversation_turn")
+}
+
+func assertStringAttr(t *testing.T, attrs []OTLPAttribute, key, want string) {
+	t.Helper()
+	for _, a := range attrs {
+		if a.Key == key {
+			if a.Value.StringValue == nil || *a.Value.StringValue != want {
+				t.Fatalf("attribute %q = %v, want %q", key, a.Value, want)
+			}
+			return
+		}
 	}
+	t.Fatalf("expected attribute %q not found", key)
+}
+
+func assertIntAttr(t *testing.T, attrs []OTLPAttribute, key string, want int64) {
+	t.Helper()
+	for _, a := range attrs {
+		if a.Key == key {
+			if a.Value.IntValue == nil || *a.Value.IntValue != want {
+				t.Fatalf("attribute %q = %v, want %d", key, a.Value, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected attribute %q not found", key)
 }

@@ -799,3 +799,170 @@ func TestHandler_ReasoningWithToolLoop(t *testing.T) {
 		t.Errorf("iter2 reasoning delta = %q, want %q", delta, "Now I can answer.")
 	}
 }
+
+func TestHandler_MaxIterations_EmitsInterruptRunFinished(t *testing.T) {
+	chatFn := func(_ context.Context, _ string, _ string, _ []types.Message, _ ChatOptions) error {
+		return domain.ErrMaxToolIterations
+	}
+
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
+
+	body := `{"messages":[{"id":"m1","role":"user","content":"do stuff"}],"forwardedProps":{"model":"sonnet-4.6"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	evts := parseSSEEvents(t, rec.Body.Bytes())
+
+	if len(evts) != 2 {
+		for i, e := range evts {
+			t.Logf("event[%d]: %v", i, e["type"])
+		}
+		t.Fatalf("got %d events, want 2 (RUN_STARTED + RUN_FINISHED with interrupt)", len(evts))
+	}
+
+	assertEventType(t, evts[0], events.EventTypeRunStarted)
+	assertEventType(t, evts[1], events.EventTypeRunFinished)
+
+	// Verify outcome is interrupt.
+	outcome, ok := evts[1]["outcome"].(map[string]any)
+	if !ok {
+		t.Fatal("RUN_FINISHED missing outcome field")
+	}
+	if outcome["type"] != "interrupt" {
+		t.Errorf("outcome type = %q, want %q", outcome["type"], "interrupt")
+	}
+
+	interrupts, ok := outcome["interrupts"].([]any)
+	if !ok || len(interrupts) == 0 {
+		t.Fatal("outcome missing interrupts array")
+	}
+	interrupt, _ := interrupts[0].(map[string]any)
+	if interrupt["reason"] != "talk:max_iterations" {
+		t.Errorf("interrupt reason = %q, want %q", interrupt["reason"], "talk:max_iterations")
+	}
+	if interrupt["id"] == nil || interrupt["id"] == "" {
+		t.Error("interrupt missing id")
+	}
+}
+
+func TestHandler_Resume_Resolved_ContinuesChat(t *testing.T) {
+	var receivedMessages []types.Message
+	chatFn := func(_ context.Context, _ string, _ string, messages []types.Message, opts ChatOptions) error {
+		receivedMessages = messages
+		emitter := NewAGUIEmitter(opts.SSEWriter, nil)
+		return emitter.HandleMessageEvent(context.Background(), domain.MessageEvent{
+			Message: domain.Message{Role: domain.RoleAssistant, Content: "continued"},
+		})
+	}
+
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
+
+	body := `{"threadId":"t1","messages":[],"resume":[{"interruptId":"int-1","status":"resolved"}],"forwardedProps":{"model":"sonnet-4.6"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	evts := parseSSEEvents(t, rec.Body.Bytes())
+
+	// Should have events: RUN_STARTED, TEXT_MESSAGE_START, TEXT_MESSAGE_CONTENT, TEXT_MESSAGE_END, RUN_FINISHED
+	if len(evts) < 3 {
+		for i, e := range evts {
+			t.Logf("event[%d]: %v", i, e["type"])
+		}
+		t.Fatalf("got %d events, want at least 3", len(evts))
+	}
+	assertEventType(t, evts[0], events.EventTypeRunStarted)
+	assertEventType(t, evts[len(evts)-1], events.EventTypeRunFinished)
+
+	// Verify a continuation message was injected.
+	if len(receivedMessages) == 0 {
+		t.Fatal("chatFn received no messages — expected injected continuation")
+	}
+	if receivedMessages[0].Content != "Please continue where you left off." {
+		t.Errorf("injected message = %q, want continuation prompt", receivedMessages[0].Content)
+	}
+}
+
+func TestHandler_Resume_Cancelled_EmitsRunFinished(t *testing.T) {
+	chatFnCalled := false
+	chatFn := func(_ context.Context, _ string, _ string, _ []types.Message, _ ChatOptions) error {
+		chatFnCalled = true
+		return nil
+	}
+
+	handler := NewHandler(nil, chatFn, []string{"sonnet-4.6"})
+
+	body := `{"threadId":"t1","messages":[],"resume":[{"interruptId":"int-1","status":"cancelled"}],"forwardedProps":{"model":"sonnet-4.6"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if chatFnCalled {
+		t.Error("chatFn should not be called for cancelled resume")
+	}
+
+	evts := parseSSEEvents(t, rec.Body.Bytes())
+	if len(evts) != 2 {
+		for i, e := range evts {
+			t.Logf("event[%d]: %v", i, e["type"])
+		}
+		t.Fatalf("got %d events, want 2 (RUN_STARTED + RUN_FINISHED)", len(evts))
+	}
+	assertEventType(t, evts[0], events.EventTypeRunStarted)
+	assertEventType(t, evts[1], events.EventTypeRunFinished)
+}
+
+func TestHandler_Resume_MissingThreadID_Returns400(t *testing.T) {
+	handler := NewHandler(nil, nil, []string{"sonnet-4.6"})
+
+	body := `{"messages":[],"resume":[{"interruptId":"int-1","status":"resolved"}],"forwardedProps":{"model":"sonnet-4.6"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "threadId is required") {
+		t.Errorf("body = %q, want threadId error", rec.Body.String())
+	}
+}
+
+func TestHandler_Resume_UnknownStatus_Returns400(t *testing.T) {
+	handler := NewHandler(nil, nil, []string{"sonnet-4.6"})
+
+	body := `{"threadId":"t1","messages":[],"resume":[{"interruptId":"int-1","status":"pending"}],"forwardedProps":{"model":"sonnet-4.6"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "unknown resume status") {
+		t.Errorf("body = %q, want unknown status error", rec.Body.String())
+	}
+}
+
+func TestHandler_Resume_ConflictingStatuses_Returns400(t *testing.T) {
+	handler := NewHandler(nil, nil, []string{"sonnet-4.6"})
+
+	body := `{"threadId":"t1","messages":[],"resume":[{"interruptId":"int-1","status":"resolved"},{"interruptId":"int-2","status":"cancelled"}],"forwardedProps":{"model":"sonnet-4.6"}}`
+	req := httptest.NewRequest(http.MethodPost, "/agent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "conflicting resume statuses") {
+		t.Errorf("body = %q, want conflict error", rec.Body.String())
+	}
+}

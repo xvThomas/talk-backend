@@ -96,17 +96,21 @@ type MessageEvent struct {
 
 // TurnEvent is emitted once at the end of a full Chat() turn.
 type TurnEvent struct {
-	TurnID       string       // Trace ID shared with child API call spans
-	TurnSpanID   string       // Span ID for this turn (parent of API call spans)
-	StartedAt    time.Time    // When the conversation turn started
-	EndedAt      time.Time    // When the conversation turn completed
-	SessionScope SessionScope // Session and user identifier shared across the CLI session
-	Model        Model
-	TotalUsage   Usage
-	CallCount    int
-	Input        string     // The original user question
-	Output       string     // The final assistant response
-	ToolCalls    []ToolCall // All tool calls made during this turn
+	TurnID          string       // Trace ID shared with child API call spans
+	TurnSpanID      string       // Span ID for this turn (parent of API call spans)
+	StartedAt       time.Time    // When the conversation turn started
+	EndedAt         time.Time    // When the conversation turn completed
+	SessionScope    SessionScope // Session and user identifier shared across the CLI session
+	Model           Model
+	TotalUsage      Usage
+	CallCount       int
+	Input           string     // The original user question
+	Output          string     // The final assistant response
+	ToolCalls       []ToolCall // All tool calls made during this turn
+	Status          string     // "complete" (default) or "incomplete" (max iterations reached)
+	InterruptID     string     // Unique ID of the emitted interrupt (set by handler)
+	InterruptReason string     // Reason for the interrupt (e.g. "talk:max_iterations")
+	InterruptState  string     // Lifecycle state: "open", "resolved", "cancelled"
 }
 
 // ToolCallEvent is emitted when a tool call is about to be executed.
