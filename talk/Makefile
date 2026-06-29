@@ -1,6 +1,4 @@
-ifeq ($(OS),Windows_NT)
-  SHELL := bash
-endif
+SHELL := /bin/sh
 
 APP_NAME     := talk-cli
 BINARY       := bin/$(APP_NAME)
@@ -35,10 +33,15 @@ serve: build ## Start the AG-UI server (MODEL=haiku-4.5, PORT=8090)
 	cp -f system_prompt.md bin/system_prompt.md
 	$(BINARY) serve --port $(or $(PORT),8090)
 
-serve-dev: ## Start the AG-UI server with hot reload (MODEL=haiku-4.5, requires air)
-	cp -f system_prompt.md bin/system_prompt.md
-	@mkdir -p tmp && cp -f system_prompt.md tmp/system_prompt.md
+serve-dev: ## Start the AG-UI server with hot reload (requires air)
+	mkdir -p tmp
+	cp -f system_prompt.md tmp/system_prompt.md
 	air
+
+_air-build:
+	mkdir -p tmp
+	cp -f system_prompt.md tmp/system_prompt.md
+	go build $(LDFLAGS) -o ./tmp/talk-cli.exe $(CMD)
 
 test: ## Run tests
 	@$(ECHO) "$(COLOR_YELLOW)Running tests...$(COLOR_RESET)"
