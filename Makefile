@@ -1,6 +1,4 @@
-ifeq ($(OS),Windows_NT)
-  SHELL := bash
-endif
+SHELL := /bin/sh
 
 MODULES := talk-libs talk mcp-playground mcp-owm mcp-ign-nav
 

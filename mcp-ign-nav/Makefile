@@ -1,6 +1,4 @@
-ifeq ($(OS),Windows_NT)
-  SHELL := bash
-endif
+SHELL := /bin/sh
 
 APP_NAME     := mcp-ign-nav
 BINARY       := bin/$(APP_NAME)
