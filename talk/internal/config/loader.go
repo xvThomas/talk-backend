@@ -6,8 +6,6 @@ import (
 	"os"
 	"strconv"
 
-	//"strings"
-
 	"github.com/joho/godotenv"
 )
 
@@ -16,11 +14,6 @@ var ErrMissingEnvVar = errors.New("missing required environment variable")
 
 // Config holds all configuration loaded from environment variables.
 type Config struct {
-	// AnthropicAPIKey      string
-	// OpenAIAPIKey         string
-	// MistralAPIKey        string
-	// PoolsideAPIKey       string
-	OpenWeatherMapAPIKey string
 	ToolsMaxConcurrent   int // Max concurrent tool executions (default: 4)
 	ContextFullTurns     int // Context mode selector: -1 full, 0 lean, N hybrid:N
 
@@ -46,11 +39,6 @@ func Load(envFile string) (*Config, error) {
 	_ = godotenv.Load(envFile)
 
 	cfg := &Config{
-		// AnthropicAPIKey:      os.Getenv("ANTHROPIC_API_KEY"),
-		// OpenAIAPIKey:         os.Getenv("OPENAI_API_KEY"),
-		// MistralAPIKey:        os.Getenv("MISTRAL_API_KEY"),
-		// PoolsideAPIKey:       os.Getenv("POOLSIDE_API_KEY"),
-		OpenWeatherMapAPIKey: os.Getenv("OPENWEATHERMAP_API_KEY"),
 		ToolsMaxConcurrent:   parseToolsMaxConcurrent(os.Getenv("TOOLS_MAX_CONCURRENT")),
 		ContextFullTurns:     parseContextFullTurns(os.Getenv("CONTEXT_FULL_TURNS")),
 
@@ -71,33 +59,6 @@ func Load(envFile string) (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-/*
-// RequireAnthropicKey returns the Anthropic API key or an error if missing.
-func (c *Config) RequireAnthropicKey() (string, error) {
-	return requireKey(c.AnthropicAPIKey, "ANTHROPIC_API_KEY")
-}
-
-// RequireOpenAIKey returns the OpenAI API key or an error if missing.
-func (c *Config) RequireOpenAIKey() (string, error) {
-	return requireKey(c.OpenAIAPIKey, "OPENAI_API_KEY")
-}
-
-// RequireMistralKey returns the Mistral API key or an error if missing.
-func (c *Config) RequireMistralKey() (string, error) {
-	return requireKey(c.MistralAPIKey, "MISTRAL_API_KEY")
-}
-
-// RequirePoolsideKey returns the Poolside API key or an error if missing.
-func (c *Config) RequirePoolsideKey() (string, error) {
-	return requireKey(c.PoolsideAPIKey, "POOLSIDE_API_KEY")
-}
-*/
-
-// RequireOpenWeatherMapKey returns the OpenWeatherMap API key or an error if missing.
-func (c *Config) RequireOpenWeatherMapKey() (string, error) {
-	return requireKey(c.OpenWeatherMapAPIKey, "OPENWEATHERMAP_API_KEY")
 }
 
 func requireKey(value, name string) (string, error) {

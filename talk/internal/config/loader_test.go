@@ -90,25 +90,6 @@ func TestParseCORSValue(t *testing.T) {
 	}
 }
 
-func TestRequireKeyAndConfigRequireOpenWeatherMapKey(t *testing.T) {
-	_, err := requireKey("", "OPENWEATHERMAP_API_KEY")
-	if err == nil {
-		t.Fatal("requireKey expected error, got nil")
-	}
-	if !errors.Is(err, ErrMissingEnvVar) {
-		t.Fatalf("requireKey error = %v, want ErrMissingEnvVar", err)
-	}
-
-	cfg := &Config{OpenWeatherMapAPIKey: "owm-key"}
-	got, err := cfg.RequireOpenWeatherMapKey()
-	if err != nil {
-		t.Fatalf("RequireOpenWeatherMapKey unexpected error: %v", err)
-	}
-	if got != "owm-key" {
-		t.Fatalf("RequireOpenWeatherMapKey = %q, want %q", got, "owm-key")
-	}
-}
-
 func TestGetRequiredKeyValue(t *testing.T) {
 	const key = "TEST_REQUIRED_ENV"
 	t.Setenv(key, "value-1")
@@ -146,7 +127,6 @@ func TestGetKeyValue(t *testing.T) {
 }
 
 func TestLoadReadsAndParsesEnvironment(t *testing.T) {
-	t.Setenv("OPENWEATHERMAP_API_KEY", "owm-value")
 	t.Setenv("TOOLS_MAX_CONCURRENT", "7")
 	t.Setenv("CONTEXT_FULL_TURNS", "2")
 	t.Setenv("LANGFUSE_SECRET_KEY", "sk-test")
@@ -161,9 +141,6 @@ func TestLoadReadsAndParsesEnvironment(t *testing.T) {
 		t.Fatalf("Load unexpected error: %v", err)
 	}
 
-	if cfg.OpenWeatherMapAPIKey != "owm-value" {
-		t.Fatalf("OpenWeatherMapAPIKey = %q, want %q", cfg.OpenWeatherMapAPIKey, "owm-value")
-	}
 	if cfg.ToolsMaxConcurrent != 7 {
 		t.Fatalf("ToolsMaxConcurrent = %d, want 7", cfg.ToolsMaxConcurrent)
 	}
